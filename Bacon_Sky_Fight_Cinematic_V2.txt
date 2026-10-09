@@ -1,0 +1,1121 @@
+-- BACON SKY FIGHT CINEMATIC V2 | character details + forward dash fix
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = Workspace.CurrentCamera
+if not Camera then repeat task.wait() Camera = Workspace.CurrentCamera until Camera end
+
+local OldStudio = Workspace:FindFirstChild("PhysicsAnimationStudio")
+if OldStudio then OldStudio:Destroy() end
+local OldUI = PlayerGui:FindFirstChild("BaconStudioUI")
+if OldUI then OldUI:Destroy() end
+
+local OriginalCameraType = Camera.CameraType
+local OriginalCameraSubject = Camera.CameraSubject
+local OriginalFOV = Camera.FieldOfView
+
+local Studio = Instance.new("Folder")
+Studio.Name = "PhysicsAnimationStudio"
+Studio.Parent = Workspace
+
+local Running = true
+local IsPlaying = true
+local Connections = {}
+local Tweens = {}
+local CameraShakeIntensity = 0
+local TargetFOV = 65
+
+local SoundIds = {
+    Punch = "rbxassetid://12222216",
+    Slash = "rbxassetid://12222225",
+    Impact = "rbxassetid://138186576"
+}
+local SoundIndex = 0
+
+local function PlaySFX(kind, volume, speed)
+    if not Running then return end
+    local id = SoundIds[kind] or SoundIds.Impact
+    local sound = Instance.new("Sound")
+    sound.Name = "BaconFightSFX"
+    sound.SoundId = id
+    sound.Volume = volume or 0.75
+    sound.PlaybackSpeed = speed or (0.92 + math.random() * 0.2)
+    sound.RollOffMaxDistance = 180
+    sound.Parent = SoundService
+    sound:Play()
+    Debris:AddItem(sound, 4)
+end
+
+
+local function Track(c)
+table.insert(Connections, c)
+return c
+end
+
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart")
+local PlayerOrigin = HRP.Position
+
+local ArenaOrigin = CFrame.new(HRP.Position + Vector3.new(0, 120, -200))
+
+local Ground = Instance.new("Part")
+Ground.Name = "ArenaFloor"
+Ground.Size = Vector3.new(100, 2, 100)
+Ground.CFrame = ArenaOrigin * CFrame.new(0, -1, 0)
+Ground.Anchored = true
+Ground.CanCollide = true
+Ground.Material = Enum.Material.Slate
+Ground.Color = Color3.fromRGB(35, 38, 48)
+Ground.Parent = Studio
+
+local Pillar1 = Instance.new("Part")
+Pillar1.Size = Vector3.new(4, 30, 4)
+Pillar1.CFrame = ArenaOrigin * CFrame.new(-45, -15, -45)
+Pillar1.Anchored = true
+Pillar1.Material = Enum.Material.Concrete
+Pillar1.Color = Color3.fromRGB(60, 62, 72)
+Pillar1.Parent = Studio
+
+local Pillar2 = Instance.new("Part")
+Pillar2.Size = Vector3.new(4, 30, 4)
+Pillar2.CFrame = ArenaOrigin * CFrame.new(45, -15, -45)
+Pillar2.Anchored = true
+Pillar2.Material = Enum.Material.Concrete
+Pillar2.Color = Color3.fromRGB(60, 62, 72)
+Pillar2.Parent = Studio
+
+local Pillar3 = Instance.new("Part")
+Pillar3.Size = Vector3.new(4, 30, 4)
+Pillar3.CFrame = ArenaOrigin * CFrame.new(-45, -15, 45)
+Pillar3.Anchored = true
+Pillar3.Material = Enum.Material.Concrete
+Pillar3.Color = Color3.fromRGB(60, 62, 72)
+Pillar3.Parent = Studio
+
+local Pillar4 = Instance.new("Part")
+Pillar4.Size = Vector3.new(4, 30, 4)
+Pillar4.CFrame = ArenaOrigin * CFrame.new(45, -15, 45)
+Pillar4.Anchored = true
+Pillar4.Material = Enum.Material.Concrete
+Pillar4.Color = Color3.fromRGB(60, 62, 72)
+Pillar4.Parent = Studio
+
+local SkyDome = Instance.new("Part")
+SkyDome.Shape = Enum.PartType.Ball
+SkyDome.Size = Vector3.new(300, 300, 300)
+SkyDome.CFrame = ArenaOrigin
+SkyDome.Anchored = true
+SkyDome.CanCollide = false
+SkyDome.CanTouch = false
+SkyDome.CanQuery = false
+SkyDome.Material = Enum.Material.SmoothPlastic
+SkyDome.Color = Color3.fromRGB(8, 10, 20)
+SkyDome.Transparency = 0.85
+SkyDome.Parent = Studio
+
+local function CreateLight(name, offset, brightness, range, color, angle)
+local holder = Instance.new("Part")
+holder.Name = name
+holder.Size = Vector3.one
+holder.CFrame = ArenaOrigin * CFrame.new(offset)
+holder.Anchored = true
+holder.Transparency = 1
+holder.CanCollide = false
+holder.CanQuery = false
+holder.CanTouch = false
+holder.Parent = Studio
+local light = Instance.new("SpotLight")
+light.Brightness = brightness
+light.Range = range
+light.Angle = angle
+light.Color = color
+light.Face = Enum.NormalId.Front
+light.Parent = holder
+return holder
+end
+
+CreateLight("KeyLight", Vector3.new(-20, 25, -10), 8, 70, Color3.fromRGB(255, 240, 220), 85)
+CreateLight("FillLight", Vector3.new(20, 18, 0), 5, 60, Color3.fromRGB(100, 180, 255), 90)
+CreateLight("BackLight", Vector3.new(0, 20, 25), 6, 60, Color3.fromRGB(255, 90, 130), 80)
+CreateLight("TopLight", Vector3.new(0, 35, 0), 4, 80, Color3.fromRGB(255, 255, 255), 60)
+
+local function CreatePart(parent, name, size, color, transparency, material)
+local p = Instance.new("Part")
+p.Name = name
+p.Size = size
+p.Color = color
+p.Transparency = transparency or 0
+p.Anchored = true
+p.CanCollide = false
+p.CanTouch = false
+p.CanQuery = false
+p.CastShadow = true
+p.Material = material or Enum.Material.SmoothPlastic
+p.TopSurface = Enum.SurfaceType.Smooth
+p.BottomSurface = Enum.SurfaceType.Smooth
+p.Parent = parent
+return p
+end
+
+local BaconBaseRot = CFrame.Angles(0, math.rad(-90), 0)
+local EnemyBaseRot = CFrame.Angles(0, math.rad(90), 0)
+
+local BaconStart = ArenaOrigin * CFrame.new(-9, 3, 0) * BaconBaseRot
+local EnemyStart = ArenaOrigin * CFrame.new(9, 3, 0) * EnemyBaseRot
+
+local Bacon = Instance.new("Model")
+Bacon.Name = "BaconFighter"
+Bacon.Parent = Studio
+
+local BaconRoot = CreatePart(Bacon, "HumanoidRootPart", Vector3.new(2, 2, 1), Color3.new(1, 1, 1), 1)
+BaconRoot.CFrame = BaconStart
+Bacon.PrimaryPart = BaconRoot
+
+local BaconTorso = CreatePart(Bacon, "Torso", Vector3.new(2, 2, 1), Color3.fromRGB(13, 105, 172))
+local BaconHead = CreatePart(Bacon, "Head", Vector3.new(2, 1, 1), Color3.fromRGB(245, 205, 48))
+local BaconLArm = CreatePart(Bacon, "Left Arm", Vector3.new(1, 2, 1), Color3.fromRGB(245, 205, 48))
+local BaconRArm = CreatePart(Bacon, "Right Arm", Vector3.new(1, 2, 1), Color3.fromRGB(245, 205, 48))
+local BaconLLeg = CreatePart(Bacon, "Left Leg", Vector3.new(1, 2, 1), Color3.fromRGB(37, 37, 37))
+local BaconRLeg = CreatePart(Bacon, "Right Leg", Vector3.new(1, 2, 1), Color3.fromRGB(37, 37, 37))
+local BaconHair = CreatePart(Bacon, "HairHandle", Vector3.one, Color3.fromRGB(40, 25, 15), 0)
+
+local BaconHeadMesh = Instance.new("SpecialMesh")
+BaconHeadMesh.MeshType = Enum.MeshType.Head
+BaconHeadMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
+BaconHeadMesh.Parent = BaconHead
+
+local BaconFace = Instance.new("Decal")
+BaconFace.Texture = "rbxassetid://7074786"
+BaconFace.Face = Enum.NormalId.Front
+BaconFace.Parent = BaconHead
+
+local BaconHairMesh = Instance.new("SpecialMesh")
+BaconHairMesh.MeshType = Enum.MeshType.FileMesh
+BaconHairMesh.MeshId = "rbxassetid://62234403"
+BaconHairMesh.TextureId = "rbxassetid://62234400"
+BaconHairMesh.Scale = Vector3.one
+BaconHairMesh.Parent = BaconHair
+
+local BaconShirt = Instance.new("Shirt")
+BaconShirt.ShirtTemplate = "rbxassetid://144076358"
+BaconShirt.Parent = Bacon
+
+local BaconPants = Instance.new("Pants")
+BaconPants.PantsTemplate = "rbxassetid://144076760"
+BaconPants.Parent = Bacon
+
+local BaconHumanoid = Instance.new("Humanoid")
+BaconHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+BaconHumanoid.Parent = Bacon
+
+local Enemy = Instance.new("Model")
+Enemy.Name = "EnemyFighter"
+Enemy.Parent = Studio
+
+local EnemyRoot = CreatePart(Enemy, "HumanoidRootPart", Vector3.new(2, 2, 1), Color3.new(1, 1, 1), 1)
+EnemyRoot.CFrame = EnemyStart
+Enemy.PrimaryPart = EnemyRoot
+
+local EnemyTorso = CreatePart(Enemy, "Torso", Vector3.new(2, 2, 1), Color3.fromRGB(140, 20, 40))
+local EnemyHead = CreatePart(Enemy, "Head", Vector3.new(2, 1, 1), Color3.fromRGB(210, 160, 130))
+local EnemyLArm = CreatePart(Enemy, "Left Arm", Vector3.new(1, 2, 1), Color3.fromRGB(140, 20, 40))
+local EnemyRArm = CreatePart(Enemy, "Right Arm", Vector3.new(1, 2, 1), Color3.fromRGB(140, 20, 40))
+local EnemyLLeg = CreatePart(Enemy, "Left Leg", Vector3.new(1, 2, 1), Color3.fromRGB(25, 25, 35))
+local EnemyRLeg = CreatePart(Enemy, "Right Leg", Vector3.new(1, 2, 1), Color3.fromRGB(25, 25, 35))
+local EnemyHair = CreatePart(Enemy, "HairHandle", Vector3.one, Color3.fromRGB(15, 15, 20), 0)
+
+local EnemyHeadMesh = Instance.new("SpecialMesh")
+EnemyHeadMesh.MeshType = Enum.MeshType.Head
+EnemyHeadMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
+EnemyHeadMesh.Parent = EnemyHead
+
+local EnemyFace = Instance.new("Decal")
+EnemyFace.Texture = "rbxassetid://2665797673"
+EnemyFace.Face = Enum.NormalId.Front
+EnemyFace.Parent = EnemyHead
+
+local EnemyHairMesh = Instance.new("SpecialMesh")
+EnemyHairMesh.MeshType = Enum.MeshType.FileMesh
+EnemyHairMesh.MeshId = "rbxassetid://62234403"
+EnemyHairMesh.TextureId = "rbxassetid://62234400"
+EnemyHairMesh.Scale = Vector3.new(1.1, 1.1, 1.1)
+EnemyHairMesh.Parent = EnemyHair
+
+local EnemyShirt = Instance.new("Shirt")
+EnemyShirt.ShirtTemplate = "rbxassetid://144076840"
+EnemyShirt.Parent = Enemy
+
+local EnemyPants = Instance.new("Pants")
+EnemyPants.PantsTemplate = "rbxassetid://144076760"
+EnemyPants.Parent = Enemy
+
+local EnemyHumanoid = Instance.new("Humanoid")
+EnemyHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+EnemyHumanoid.Parent = Enemy
+
+local BaconEyeL = CreatePart(Bacon, "BaconEyeL", Vector3.new(0.16, 0.12, 0.045), Color3.fromRGB(12, 20, 28), 0, Enum.Material.SmoothPlastic)
+local BaconEyeR = CreatePart(Bacon, "BaconEyeR", Vector3.new(0.16, 0.12, 0.045), Color3.fromRGB(12, 20, 28), 0, Enum.Material.SmoothPlastic)
+local BaconBrowL = CreatePart(Bacon, "BaconBrowL", Vector3.new(0.22, 0.055, 0.05), Color3.fromRGB(40, 25, 15), 0, Enum.Material.SmoothPlastic)
+local BaconBrowR = CreatePart(Bacon, "BaconBrowR", Vector3.new(0.22, 0.055, 0.05), Color3.fromRGB(40, 25, 15), 0, Enum.Material.SmoothPlastic)
+local BaconMouth = CreatePart(Bacon, "BaconMouth", Vector3.new(0.22, 0.045, 0.045), Color3.fromRGB(55, 20, 18), 0, Enum.Material.SmoothPlastic)
+local BaconChestPlate = CreatePart(Bacon, "BaconChestPlate", Vector3.new(0.9, 0.92, 0.09), Color3.fromRGB(12, 30, 46), 0, Enum.Material.Metal)
+local BaconChestGlow = CreatePart(Bacon, "BaconChestGlow", Vector3.new(0.62, 0.07, 0.035), Color3.fromRGB(0, 225, 255), 0, Enum.Material.Neon)
+local BaconShoulderL = CreatePart(Bacon, "BaconShoulderL", Vector3.new(0.42, 0.36, 0.42), Color3.fromRGB(0, 110, 155), 0, Enum.Material.Metal)
+local BaconShoulderR = CreatePart(Bacon, "BaconShoulderR", Vector3.new(0.42, 0.36, 0.42), Color3.fromRGB(0, 110, 155), 0, Enum.Material.Metal)
+local BaconWristL = CreatePart(Bacon, "BaconWristL", Vector3.new(1.08, 0.22, 1.06), Color3.fromRGB(0, 220, 255), 0, Enum.Material.Neon)
+local BaconWristR = CreatePart(Bacon, "BaconWristR", Vector3.new(1.08, 0.22, 1.06), Color3.fromRGB(0, 220, 255), 0, Enum.Material.Neon)
+local BaconBootL = CreatePart(Bacon, "BaconBootL", Vector3.new(1.08, 0.42, 1.12), Color3.fromRGB(12, 18, 26), 0, Enum.Material.Metal)
+local BaconBootR = CreatePart(Bacon, "BaconBootR", Vector3.new(1.08, 0.42, 1.12), Color3.fromRGB(12, 18, 26), 0, Enum.Material.Metal)
+
+local EnemyEyeL = CreatePart(Enemy, "EnemyEyeL", Vector3.new(0.17, 0.12, 0.05), Color3.fromRGB(255, 45, 65), 0, Enum.Material.Neon)
+local EnemyEyeR = CreatePart(Enemy, "EnemyEyeR", Vector3.new(0.17, 0.12, 0.05), Color3.fromRGB(255, 45, 65), 0, Enum.Material.Neon)
+local EnemyBrowL = CreatePart(Enemy, "EnemyBrowL", Vector3.new(0.24, 0.07, 0.055), Color3.fromRGB(15, 15, 20), 0, Enum.Material.Metal)
+local EnemyBrowR = CreatePart(Enemy, "EnemyBrowR", Vector3.new(0.24, 0.07, 0.055), Color3.fromRGB(15, 15, 20), 0, Enum.Material.Metal)
+local EnemyMouth = CreatePart(Enemy, "EnemyMouth", Vector3.new(0.24, 0.055, 0.05), Color3.fromRGB(45, 8, 15), 0, Enum.Material.SmoothPlastic)
+local EnemyChestPlate = CreatePart(Enemy, "EnemyChestPlate", Vector3.new(0.92, 0.95, 0.1), Color3.fromRGB(35, 13, 23), 0, Enum.Material.Metal)
+local EnemyChestGlow = CreatePart(Enemy, "EnemyChestGlow", Vector3.new(0.62, 0.07, 0.04), Color3.fromRGB(255, 35, 70), 0, Enum.Material.Neon)
+local EnemyShoulderL = CreatePart(Enemy, "EnemyShoulderL", Vector3.new(0.46, 0.4, 0.46), Color3.fromRGB(80, 16, 32), 0, Enum.Material.Metal)
+local EnemyShoulderR = CreatePart(Enemy, "EnemyShoulderR", Vector3.new(0.46, 0.4, 0.46), Color3.fromRGB(80, 16, 32), 0, Enum.Material.Metal)
+local EnemyWristL = CreatePart(Enemy, "EnemyWristL", Vector3.new(1.08, 0.22, 1.06), Color3.fromRGB(255, 45, 65), 0, Enum.Material.Neon)
+local EnemyWristR = CreatePart(Enemy, "EnemyWristR", Vector3.new(1.08, 0.22, 1.06), Color3.fromRGB(255, 45, 65), 0, Enum.Material.Neon)
+local EnemyBootL = CreatePart(Enemy, "EnemyBootL", Vector3.new(1.08, 0.42, 1.12), Color3.fromRGB(18, 15, 23), 0, Enum.Material.Metal)
+local EnemyBootR = CreatePart(Enemy, "EnemyBootR", Vector3.new(1.08, 0.42, 1.12), Color3.fromRGB(18, 15, 23), 0, Enum.Material.Metal)
+local EnemySpikes = {}
+for i = 1, 5 do
+    local spike = CreatePart(Enemy, "EnemyHairSpike" .. i, Vector3.new(0.28, 0.72 + (i % 2) * 0.16, 0.3), Color3.fromRGB(22, 18, 28), 0, Enum.Material.Metal)
+    EnemySpikes[i] = spike
+end
+
+local function UpdateBaconDesign()
+    local head = BaconHead.CFrame
+    BaconEyeL.CFrame = head * CFrame.new(-0.28, 0.035, -0.515)
+    BaconEyeR.CFrame = head * CFrame.new(0.28, 0.035, -0.515)
+    BaconBrowL.CFrame = head * CFrame.new(-0.28, 0.145, -0.515) * CFrame.Angles(0, 0, math.rad(-8))
+    BaconBrowR.CFrame = head * CFrame.new(0.28, 0.145, -0.515) * CFrame.Angles(0, 0, math.rad(8))
+    BaconMouth.CFrame = head * CFrame.new(0, -0.22, -0.515)
+    BaconChestPlate.CFrame = BaconTorso.CFrame * CFrame.new(0, 0, -0.55)
+    BaconChestGlow.CFrame = BaconTorso.CFrame * CFrame.new(0, -0.05, -0.605)
+    BaconShoulderL.CFrame = BaconLArm.CFrame * CFrame.new(0, 0.68, 0)
+    BaconShoulderR.CFrame = BaconRArm.CFrame * CFrame.new(0, 0.68, 0)
+    BaconWristL.CFrame = BaconLArm.CFrame * CFrame.new(0, -0.62, 0)
+    BaconWristR.CFrame = BaconRArm.CFrame * CFrame.new(0, -0.62, 0)
+    BaconBootL.CFrame = BaconLLeg.CFrame * CFrame.new(0, -0.58, -0.08)
+    BaconBootR.CFrame = BaconRLeg.CFrame * CFrame.new(0, -0.58, -0.08)
+end
+
+local function UpdateEnemyDesign()
+    local head = EnemyHead.CFrame
+    EnemyEyeL.CFrame = head * CFrame.new(-0.28, 0.035, -0.52)
+    EnemyEyeR.CFrame = head * CFrame.new(0.28, 0.035, -0.52)
+    EnemyBrowL.CFrame = head * CFrame.new(-0.28, 0.15, -0.52) * CFrame.Angles(0, 0, math.rad(12))
+    EnemyBrowR.CFrame = head * CFrame.new(0.28, 0.15, -0.52) * CFrame.Angles(0, 0, math.rad(-12))
+    EnemyMouth.CFrame = head * CFrame.new(0, -0.22, -0.52)
+    EnemyChestPlate.CFrame = EnemyTorso.CFrame * CFrame.new(0, 0, -0.56)
+    EnemyChestGlow.CFrame = EnemyTorso.CFrame * CFrame.new(0, -0.05, -0.615)
+    EnemyShoulderL.CFrame = EnemyLArm.CFrame * CFrame.new(0, 0.68, 0)
+    EnemyShoulderR.CFrame = EnemyRArm.CFrame * CFrame.new(0, 0.68, 0)
+    EnemyWristL.CFrame = EnemyLArm.CFrame * CFrame.new(0, -0.62, 0)
+    EnemyWristR.CFrame = EnemyRArm.CFrame * CFrame.new(0, -0.62, 0)
+    EnemyBootL.CFrame = EnemyLLeg.CFrame * CFrame.new(0, -0.58, -0.08)
+    EnemyBootR.CFrame = EnemyRLeg.CFrame * CFrame.new(0, -0.58, -0.08)
+    for i, spike in ipairs(EnemySpikes) do
+        local x = (i - 3) * 0.29
+        local z = -0.1 - (i % 2) * 0.08
+        spike.CFrame = head * CFrame.new(x, 0.62 + (i % 2) * 0.08, z) * CFrame.Angles(0, 0, math.rad((i - 3) * 13))
+    end
+end
+
+local function PoseBacon(rootCF, y, scale, tr, hr, lar, rar, llr, rlr)
+local sx, sy, sz = scale.X, scale.Y, scale.Z
+BaconTorso.Size = Vector3.new(2 * sx, 2 * sy, sz)
+BaconTorso.CFrame = rootCF * CFrame.new(0, y, 0) * CFrame.Angles(math.rad(tr.X), math.rad(tr.Y), math.rad(tr.Z))
+local tcf = BaconTorso.CFrame
+BaconHead.CFrame = tcf * CFrame.new(0, sy + 0.5, 0) * CFrame.Angles(math.rad(hr.X), math.rad(hr.Y), math.rad(hr.Z))
+BaconHair.CFrame = BaconHead.CFrame * CFrame.new(0, 0.45, -0.15)
+BaconLArm.CFrame = tcf * CFrame.new(-sx - 0.5, 0, 0) * CFrame.Angles(math.rad(lar.X), math.rad(lar.Y), math.rad(lar.Z))
+BaconRArm.CFrame = tcf * CFrame.new(sx + 0.5, 0, 0) * CFrame.Angles(math.rad(rar.X), math.rad(rar.Y), math.rad(rar.Z))
+BaconLLeg.CFrame = tcf * CFrame.new(-0.5 * sx, -sy - 1, 0) * CFrame.Angles(math.rad(llr.X), math.rad(llr.Y), math.rad(llr.Z))
+BaconRLeg.CFrame = tcf * CFrame.new(0.5 * sx, -sy - 1, 0) * CFrame.Angles(math.rad(rlr.X), math.rad(rlr.Y), math.rad(rlr.Z))
+UpdateBaconDesign()
+end
+
+local function PoseEnemy(rootCF, y, scale, tr, hr, lar, rar, llr, rlr)
+local sx, sy, sz = scale.X, scale.Y, scale.Z
+EnemyTorso.Size = Vector3.new(2 * sx, 2 * sy, sz)
+EnemyTorso.CFrame = rootCF * CFrame.new(0, y, 0) * CFrame.Angles(math.rad(tr.X), math.rad(tr.Y), math.rad(tr.Z))
+local tcf = EnemyTorso.CFrame
+EnemyHead.CFrame = tcf * CFrame.new(0, sy + 0.5, 0) * CFrame.Angles(math.rad(hr.X), math.rad(hr.Y), math.rad(hr.Z))
+EnemyHair.CFrame = EnemyHead.CFrame * CFrame.new(0, 0.45, -0.15)
+EnemyLArm.CFrame = tcf * CFrame.new(-sx - 0.5, 0, 0) * CFrame.Angles(math.rad(lar.X), math.rad(lar.Y), math.rad(lar.Z))
+EnemyRArm.CFrame = tcf * CFrame.new(sx + 0.5, 0, 0) * CFrame.Angles(math.rad(rar.X), math.rad(rar.Y), math.rad(rar.Z))
+EnemyLLeg.CFrame = tcf * CFrame.new(-0.5 * sx, -sy - 1, 0) * CFrame.Angles(math.rad(llr.X), math.rad(llr.Y), math.rad(llr.Z))
+EnemyRLeg.CFrame = tcf * CFrame.new(0.5 * sx, -sy - 1, 0) * CFrame.Angles(math.rad(rlr.X), math.rad(rlr.Y), math.rad(rlr.Z))
+UpdateEnemyDesign()
+end
+
+local function EaseInOutSine(a)
+a = math.clamp(a, 0, 1)
+return -(math.cos(math.pi * a) - 1) / 2
+end
+
+local function EaseOutQuint(a)
+a = math.clamp(a, 0, 1)
+return 1 - (1 - a) ^ 5
+end
+
+local function WaitFrame()
+return RunService.RenderStepped:Wait()
+end
+
+local function Animate(duration, callback)
+local elapsed = 0
+while Running and IsPlaying and elapsed < duration do
+local dt = WaitFrame()
+if not Running or not IsPlaying then return false end
+dt = math.clamp(dt, 0, 1 / 30)
+elapsed = math.min(elapsed + dt, duration)
+callback(elapsed / duration, elapsed, dt)
+end
+return Running and IsPlaying
+end
+
+local function TriggerShockwave(position, scale, color)
+    PlaySFX("Impact", 0.65, 0.78)
+scale = scale or 1
+color = color or Color3.fromRGB(0, 200, 255)
+local ring = Instance.new("Part")
+ring.Name = "Shockwave"
+ring.Shape = Enum.PartType.Cylinder
+ring.Size = Vector3.new(0.06, 0.5, 0.5)
+ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
+ring.Anchored = true
+ring.CanCollide = false
+ring.CanTouch = false
+ring.CanQuery = false
+ring.Material = Enum.Material.Neon
+ring.Color = color
+ring.Transparency = 0.05
+ring.Parent = Studio
+local tween = TweenService:Create(ring, TweenInfo.new(0.7 * scale, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Size = Vector3.new(0.06, 18 * scale, 18 * scale), Transparency = 1 })
+table.insert(Tweens, tween)
+tween:Play()
+Debris:AddItem(ring, 0.8 * scale)
+end
+
+local function TriggerImpact(position, color, intensity)
+    PlaySFX("Punch", 0.8, 0.88 + math.random() * 0.25)
+intensity = intensity or 1
+color = color or Color3.fromRGB(255, 220, 100)
+local holder = Instance.new("Part")
+holder.Size = Vector3.one
+holder.Transparency = 1
+holder.Anchored = true
+holder.CanCollide = false
+holder.CanTouch = false
+holder.CanQuery = false
+holder.CFrame = CFrame.new(position)
+holder.Parent = Studio
+local light = Instance.new("PointLight")
+light.Brightness = 14 * intensity
+light.Range = 30 * intensity
+light.Color = color
+light.Parent = holder
+local sphere = Instance.new("Part")
+sphere.Shape = Enum.PartType.Ball
+sphere.Size = Vector3.new(1, 1, 1)
+sphere.CFrame = CFrame.new(position)
+sphere.Anchored = true
+sphere.CanCollide = false
+sphere.CanTouch = false
+sphere.CanQuery = false
+sphere.Material = Enum.Material.Neon
+sphere.Color = color
+sphere.Transparency = 0.15
+sphere.Parent = Studio
+local stw = TweenService:Create(sphere, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Size = Vector3.new(7 * intensity, 7 * intensity, 7 * intensity), Transparency = 1 })
+table.insert(Tweens, stw)
+stw:Play()
+Debris:AddItem(sphere, 0.45)
+task.spawn(function()
+for i = 1, 14 do
+if not Running then break end
+light.Brightness = 14 * intensity * (1 - i / 14)
+task.wait(0.025)
+end
+holder:Destroy()
+end)
+end
+
+local function SpeedTrail(startPos, endPos, color)
+    PlaySFX("Slash", 0.65, 0.9 + math.random() * 0.25)
+local dir = endPos - startPos
+local length = dir.Magnitude
+if length < 0.1 then return end
+for i = 1, 8 do
+local trail = Instance.new("Part")
+trail.Size = Vector3.new(0.15, 0.15, length)
+trail.CFrame = CFrame.lookAt(startPos + dir * (i / 9), endPos) * CFrame.new(0, 0, -length / 2)
+trail.Anchored = true
+trail.CanCollide = false
+trail.CanTouch = false
+trail.CanQuery = false
+trail.Material = Enum.Material.Neon
+trail.Color = color or Color3.fromRGB(255, 255, 255)
+trail.Transparency = 0.25
+trail.Parent = Studio
+local tw = TweenService:Create(trail, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Transparency = 1, Size = Vector3.new(0.02, 0.02, length) })
+table.insert(Tweens, tw)
+tw:Play()
+Debris:AddItem(trail, 0.45)
+end
+end
+
+local function ShakeCamera(intensity, duration)
+task.spawn(function()
+local start = intensity
+local t = 0
+while Running and t < duration do
+local dt = WaitFrame()
+t = t + dt
+CameraShakeIntensity = start * (1 - t / duration) ^ 2
+end
+CameraShakeIntensity = 0
+end)
+end
+
+local function RestoreCamera()
+if not Camera then return end
+Camera.CameraType = OriginalCameraType
+Camera.CameraSubject = OriginalCameraSubject
+Camera.FieldOfView = OriginalFOV
+end
+
+local function Cleanup()
+if not Running then return end
+Running = false
+for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+for _, t in ipairs(Tweens) do pcall(function() t:Cancel() end) end
+RestoreCamera()
+if Studio.Parent then Studio:Destroy() end
+local ui = PlayerGui:FindFirstChild("BaconStudioUI")
+if ui then ui:Destroy() end
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BaconStudioUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 100
+ScreenGui.Parent = PlayerGui
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "AnimationToggle"
+ToggleBtn.Size = UDim2.new(0, 88, 0, 32)
+ToggleBtn.Position = UDim2.new(0.035, 0, 0.18, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 190)
+ToggleBtn.Text = "ANIM: ON"
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.TextSize = 12
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.AutoButtonColor = true
+ToggleBtn.Active = true
+ToggleBtn.Parent = ScreenGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 9)
+ToggleCorner.Parent = ToggleBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Color = Color3.fromRGB(100, 230, 255)
+ToggleStroke.Thickness = 1.5
+ToggleStroke.Transparency = 0.15
+ToggleStroke.Parent = ToggleBtn
+
+local dragging = false
+local dragStart = nil
+local startPosition = nil
+local activeDragInput = nil
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPosition = ToggleBtn.Position
+        activeDragInput = input
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        activeDragInput = input
+    end
+end)
+
+Track(UserInputService.InputChanged:Connect(function(input)
+    if dragging and activeDragInput and input == activeDragInput and dragStart and startPosition then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(
+            startPosition.X.Scale, startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale, startPosition.Y.Offset + delta.Y
+        )
+    end
+end))
+
+Track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+        dragStart = nil
+        startPosition = nil
+        activeDragInput = nil
+    end
+end))
+
+Track(ToggleBtn.Activated:Connect(function()
+    IsPlaying = not IsPlaying
+    if IsPlaying then
+        ToggleBtn.Text = "ANIM: ON"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 190)
+        ToggleStroke.Color = Color3.fromRGB(100, 230, 255)
+    else
+        ToggleBtn.Text = "ANIM: OFF"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(95, 95, 105)
+        ToggleStroke.Color = Color3.fromRGB(180, 180, 190)
+    end
+end))
+
+Camera.CameraType = Enum.CameraType.Scriptable
+Camera.FieldOfView = 52
+TargetFOV = 52
+
+local camPos = ArenaOrigin.Position + Vector3.new(0, 10, 26)
+local camFocus = ArenaOrigin.Position + Vector3.new(0, 3, 0)
+
+local CamConn = RunService.RenderStepped:Connect(function(dt)
+if not Running then return end
+local bTorso = BaconTorso.Position
+local eTorso = EnemyTorso.Position
+local mid = (bTorso + eTorso) * 0.5
+local toEnemy = eTorso - bTorso
+if toEnemy.Magnitude < 0.1 then toEnemy = Vector3.new(1, 0, 0) end
+toEnemy = toEnemy.Unit
+local perp = toEnemy:Cross(Vector3.new(0, 1, 0))
+if perp.Magnitude < 0.1 then perp = Vector3.new(0, 0, 1) end
+perp = perp.Unit
+local toPlayer = PlayerOrigin - mid
+if toPlayer:Dot(perp) < 0 then perp = -perp end
+local fighterGap = (bTorso - eTorso).Magnitude
+local orbit = math.sin(os.clock() * 0.62) * 0.32
+local cameraSide = (perp * math.cos(orbit) + toEnemy * math.sin(orbit)).Unit
+local baseDist = math.clamp(fighterGap * 0.42 + 5.8, 8.2, 12.5)
+local desiredHeight = 3.0 + math.clamp(fighterGap * 0.06, 0, 1.0)
+local desiredPos = mid + cameraSide * baseDist + Vector3.new(0, desiredHeight, 0)
+local shake = Vector3.new((math.random() - 0.5) * CameraShakeIntensity, (math.random() - 0.5) * CameraShakeIntensity, (math.random() - 0.5) * CameraShakeIntensity)
+desiredPos = desiredPos + shake
+local sm = 1 - math.exp(-10.5 * math.clamp(dt, 0, 0.1))
+camPos = camPos:Lerp(desiredPos, sm)
+camFocus = camFocus:Lerp(mid + Vector3.new(0, 2.1, 0), sm)
+Camera.CFrame = CFrame.lookAt(camPos, camFocus)
+Camera.FieldOfView = Camera.FieldOfView + (TargetFOV - Camera.FieldOfView) * (1 - math.exp(-8 * math.clamp(dt, 0, 0.1)))
+end)
+
+Track(CamConn)
+
+local function ExecuteAnimation()
+PoseBacon(BaconStart, 0, Vector3.one, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero)
+PoseEnemy(EnemyStart, 0, Vector3.one, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero)
+
+TargetFOV = 65
+task.wait(0.9)
+if not Running or not IsPlaying then return end
+
+if not Animate(0.35, function(a)
+local s = EaseInOutSine(a)
+PoseBacon(BaconStart, -0.5 * s, Vector3.new(1 + 0.15 * s, 1 - 0.25 * s, 1 + 0.12 * s), Vector3.new(15 * s, 0, 0), Vector3.new(-10 * s, 0, 0), Vector3.new(-42 * s, 0, -14 * s), Vector3.new(-42 * s, 0, 14 * s), Vector3.new(42 * s, 0, 0), Vector3.new(42 * s, 0, 0))
+PoseEnemy(EnemyStart, -0.5 * s, Vector3.new(1 + 0.15 * s, 1 - 0.25 * s, 1 + 0.12 * s), Vector3.new(15 * s, 0, 0), Vector3.new(-10 * s, 0, 0), Vector3.new(-42 * s, 0, -14 * s), Vector3.new(-42 * s, 0, 14 * s), Vector3.new(42 * s, 0, 0), Vector3.new(42 * s, 0, 0))
+end) then return end
+
+task.wait(0.1)
+if not Running or not IsPlaying then return end
+
+local g = 55
+local jh = 7.5
+local lv = math.sqrt(2 * g * jh)
+local fd = 2 * lv / g
+local ft = 0
+TargetFOV = 58
+
+while Running and IsPlaying and ft < fd do
+local dt = math.clamp(WaitFrame(), 0, 1 / 40)
+ft = math.min(ft + dt, fd)
+local y = lv * ft - 0.5 * g * ft * ft
+local vy = lv - g * ft
+local nv = math.clamp(vy / lv, -1, 1)
+local st = math.clamp(math.abs(nv), 0, 1)
+local sx = 1 - 0.07 * st
+local sy = 1 + 0.14 * st
+local sz = 1 - 0.07 * st
+local fa = math.clamp(ft / fd, 0, 1)
+local flipAngle = math.pi * 2 * fa
+local tuck = math.sin(fa * math.pi)
+local baconCF = BaconStart * CFrame.new(0, y, 0) * CFrame.Angles(flipAngle, 0, 0)
+PoseBacon(baconCF, 0, Vector3.new(sx, sy, sz), Vector3.new(26 * tuck, 0, 0), Vector3.new(-10 * tuck, 0, 0), Vector3.new(-120 * tuck - 15, 0, -14), Vector3.new(-120 * tuck - 15, 0, 14), Vector3.new(92 * tuck, 0, 0), Vector3.new(92 * tuck, 0, 0))
+end
+
+if not Running or not IsPlaying then return end
+
+TargetFOV = 70
+TriggerShockwave(BaconTorso.Position - Vector3.new(0, 1, 0), 1.2, Color3.fromRGB(0, 200, 255))
+TriggerImpact(BaconTorso.Position + Vector3.new(0, -2, 0), Color3.fromRGB(0, 220, 255), 1.3)
+ShakeCamera(1.1, 0.45)
+
+if not Animate(0.28, function(a)
+local e = 1 - EaseOutQuint(a)
+PoseBacon(BaconStart, -0.5 * e, Vector3.new(1 + 0.3 * e, 1 - 0.32 * e, 1 + 0.24 * e), Vector3.new(24 * e, 0, 0), Vector3.new(-15 * e, 0, 0), Vector3.new(-68 * e, 0, -12 * e), Vector3.new(-68 * e, 0, 12 * e), Vector3.new(58 * e, 0, 0), Vector3.new(58 * e, 0, 0))
+end) then return end
+
+if not Animate(0.45, function(a)
+local s = EaseInOutSine(a)
+PoseBacon(BaconStart, -0.5 * (1 - s), Vector3.new(1 + 0.3 * (1 - s), 1 - 0.32 * (1 - s), 1 + 0.24 * (1 - s)), Vector3.new(24 * (1 - s), 0, 0), Vector3.new(-15 * (1 - s), 0, 0), Vector3.new(-68 * (1 - s), 0, -12 * (1 - s)), Vector3.new(-68 * (1 - s), 0, 12 * (1 - s)), Vector3.new(58 * (1 - s), 0, 0), Vector3.new(58 * (1 - s), 0, 0))
+end) then return end
+
+TargetFOV = 62
+task.wait(0.35)
+if not Running or not IsPlaying then return end
+
+if not Animate(0.28, function(a)
+local s = EaseInOutSine(a)
+PoseEnemy(EnemyStart, -0.45 * s, Vector3.new(1 + 0.18 * s, 1 - 0.28 * s, 1 + 0.14 * s), Vector3.new(26 * s, 0, 0), Vector3.new(-11 * s, 0, 0), Vector3.new(-58 * s, 0, -22 * s), Vector3.new(-58 * s, 0, 22 * s), Vector3.new(52 * s, 0, 0), Vector3.new(52 * s, 0, 0))
+end) then return end
+
+task.wait(0.12)
+if not Running or not IsPlaying then return end
+
+local enemyDashFrom = EnemyStart
+local enemyDashTo = ArenaOrigin * CFrame.new(-3.5, 3, 0) * EnemyBaseRot
+
+SpeedTrail(enemyDashFrom.Position, enemyDashTo.Position, Color3.fromRGB(255, 80, 100))
+
+if not Animate(0.5, function(a)
+local s = EaseOutQuint(a)
+local rootCF = enemyDashFrom:Lerp(enemyDashTo, s)
+local lean = math.sin(a * math.pi) * 8
+PoseEnemy(rootCF * CFrame.Angles(0, 0, math.rad(lean)), 0, Vector3.new(0.93, 1.1, 0.93), Vector3.new(18, 0, 0), Vector3.new(-8, 0, 0), Vector3.new(-145 + 45 * a, 0, -8), Vector3.new(-145 + 45 * a, 0, 8), Vector3.new(28 - 10 * a, 0, 0), Vector3.new(-15 + 10 * a, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+TargetFOV = 68
+TriggerImpact(EnemyRArm.Position, Color3.fromRGB(255, 90, 120), 1.1)
+ShakeCamera(0.7, 0.3)
+
+if not Animate(0.18, function(a)
+local s = EaseOutQuint(a)
+PoseEnemy(enemyDashTo, 0, Vector3.one, Vector3.new(26 * s, 0, 0), Vector3.new(-15 * s, 0, 0), Vector3.new(-100 * s, 0, -10 * s), Vector3.new(62 * s, 0, 10 * s), Vector3.new(16 * s, 0, 0), Vector3.new(-16 * s, 0, 0))
+end) then return end
+
+if not Animate(0.24, function(a)
+local s = EaseOutQuint(a)
+local lean = math.sin(a * math.pi) * 12
+PoseBacon(BaconStart * CFrame.Angles(0, 0, math.rad(lean)), -0.25 * s, Vector3.new(1 + 0.08 * s, 1 - 0.15 * s, 1 + 0.05 * s), Vector3.new(-14 * s, 0, 0), Vector3.new(22 * s, 0, 0), Vector3.new(-22 * s, 0, -32 * s), Vector3.new(68 * s, 0, 32 * s), Vector3.new(11 * s, 0, 0), Vector3.new(-9 * s, 0, 0))
+end) then return end
+
+TriggerImpact(BaconLArm.Position, Color3.fromRGB(0, 200, 255), 1.2)
+ShakeCamera(0.9, 0.35)
+
+if not Animate(0.2, function(a)
+local s = EaseOutQuint(a)
+local stagCF = enemyDashTo * CFrame.Angles(0, 0, math.rad(-28 * s))
+local pushBack = Vector3.new(2.5 * s, 0, 0)
+PoseEnemy(stagCF + pushBack, 0, Vector3.one, Vector3.new(-28 * s, 0, 17 * s), Vector3.new(22 * s, 0, 11 * s), Vector3.new(-32 * s, 0, -32 * s), Vector3.new(-62 * s, 0, 22 * s), Vector3.new(-11 * s, 0, 0), Vector3.new(16 * s, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+local enemyStagger = enemyDashTo * CFrame.Angles(0, 0, math.rad(-28)) + Vector3.new(2.5, 0, 0)
+local enemyRecover = enemyDashTo + Vector3.new(1.8, 0, 0)
+
+if not Animate(0.38, function(a)
+local s = EaseInOutSine(a)
+local cf = enemyStagger:Lerp(enemyRecover, s)
+PoseEnemy(cf, 0, Vector3.one, Vector3.new(-28 * (1 - s), 0, 17 * (1 - s)), Vector3.new(22 * (1 - s), 0, 11 * (1 - s)), Vector3.new(-32 * (1 - s), 0, -32 * (1 - s)), Vector3.new(-62 * (1 - s), 0, 22 * (1 - s)), Vector3.new(-11 * (1 - s), 0, 0), Vector3.new(16 * (1 - s), 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+if not Animate(0.22, function(a)
+local s = EaseOutQuint(a)
+PoseEnemy(enemyRecover, -0.22 * s, Vector3.one, Vector3.new(16 * s, 0, 0), Vector3.new(-11 * s, 0, 0), Vector3.new(-48 * s, 0, -26 * s), Vector3.new(-48 * s, 0, 26 * s), Vector3.new(-105 * s, 0, 0), Vector3.new(26 * s, 0, 0))
+end) then return end
+
+if not Animate(0.16, function(a)
+local s = EaseOutQuint(a)
+PoseBacon(BaconStart, -0.38 * s, Vector3.new(1.06, 0.84, 1.06), Vector3.new(-22 * s, 0, 0), Vector3.new(22 * s, 0, 0), Vector3.new(-32 * s, 0, -42 * s), Vector3.new(52 * s, 0, 42 * s), Vector3.new(22 * s, 0, 0), Vector3.new(-16 * s, 0, 0))
+end) then return end
+
+TriggerImpact(BaconRArm.Position, Color3.fromRGB(0, 200, 255), 1.0)
+
+if not Running or not IsPlaying then return end
+
+if not Animate(0.34, function(a)
+local s = EaseInOutSine(a)
+local lean = BaconStart * CFrame.Angles(0, 0, math.rad(22 * s))
+PoseBacon(lean, -0.2 * s, Vector3.one, Vector3.new(22 * s, 0, 0), Vector3.new(-11 * s, 0, 0), Vector3.new(-148 * s, 0, -22 * s), Vector3.new(-42 * s, 0, 16 * s), Vector3.new(-16 * s, 0, 0), Vector3.new(22 * s, 0, 0))
+end) then return end
+
+if not Animate(0.2, function(a)
+local s = EaseOutQuint(a)
+local cf = enemyRecover * CFrame.Angles(0, math.rad(180 * s), 0)
+PoseEnemy(cf, 0, Vector3.new(1 + 0.11 * s, 1 - 0.16 * s, 1 + 0.09 * s), Vector3.new(-22 * s, 0, 0), Vector3.new(16 * s, 0, 0), Vector3.new(-32 * s, 0, -16 * s), Vector3.new(-32 * s, 0, 16 * s), Vector3.new(22 * s, 0, 0), Vector3.new(-42 * s, 0, 0))
+end) then return end
+
+TriggerImpact(EnemyTorso.Position, Color3.fromRGB(255, 90, 120), 1.5)
+ShakeCamera(1.2, 0.4)
+
+if not Running or not IsPlaying then return end
+
+local enemyKnockStart = enemyRecover * CFrame.Angles(0, math.rad(180), 0)
+local enemyKnockEnd = EnemyStart
+
+SpeedTrail(enemyKnockStart.Position, enemyKnockEnd.Position, Color3.fromRGB(255, 60, 90))
+
+if not Animate(0.6, function(a)
+local s = EaseOutQuint(a)
+local cf = enemyKnockStart:Lerp(enemyKnockEnd, s)
+local arc = math.sin(a * math.pi) * 4.5
+cf = cf + Vector3.new(0, arc, 0)
+PoseEnemy(cf * CFrame.Angles(math.rad(360 * a), math.rad(180 * a), 0), 0, Vector3.new(0.94, 1.1, 0.94), Vector3.new(-28, 0, 0), Vector3.new(22, 0, 0), Vector3.new(-84, 0, -26), Vector3.new(-84, 0, 26), Vector3.new(62, 0, 0), Vector3.new(62, 0, 0))
+end) then return end
+
+TriggerShockwave(EnemyTorso.Position - Vector3.new(0, 1, 0), 0.85, Color3.fromRGB(255, 60, 90))
+TriggerImpact(EnemyTorso.Position, Color3.fromRGB(255, 60, 90), 1.1)
+ShakeCamera(0.8, 0.3)
+
+if not Running or not IsPlaying then return end
+
+if not Animate(0.4, function(a)
+local s = EaseOutQuint(a)
+local yOff = -0.9 * s
+PoseEnemy(EnemyStart * CFrame.Angles(math.rad(-90 * s), 0, 0), yOff, Vector3.one, Vector3.zero, Vector3.new(22, 0, 0), Vector3.new(-22, 0, -36), Vector3.new(-22, 0, 36), Vector3.new(16, 0, 0), Vector3.new(16, 0, 0))
+end) then return end
+
+task.wait(0.32)
+if not Running or not IsPlaying then return end
+
+if not Animate(0.55, function(a)
+local s = EaseInOutSine(a)
+local yOff = -0.9 * (1 - s)
+local rot = math.rad(-90 * (1 - s))
+PoseEnemy(EnemyStart * CFrame.Angles(rot, 0, 0), yOff, Vector3.one, Vector3.zero, Vector3.new(22 * (1 - s), 0, 0), Vector3.new(-22 * (1 - s) - 16 * s, 0, -36 * (1 - s) - 13 * s), Vector3.new(-22 * (1 - s) - 16 * s, 0, 36 * (1 - s) + 13 * s), Vector3.new(16 * (1 - s) + 22 * s, 0, 0), Vector3.new(16 * (1 - s) + 22 * s, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+TargetFOV = 60
+local enemyFacing = EnemyStart
+
+if not Animate(0.5, function(a)
+local s = EaseInOutSine(a)
+PoseEnemy(enemyFacing, -0.16 * s, Vector3.new(1 + 0.09 * s, 1 - 0.13 * s, 1 + 0.09 * s), Vector3.new(13 * s, 0, 0), Vector3.new(-9 * s, 0, 0), Vector3.new(-74 * s, 0, -26 * s), Vector3.new(-74 * s, 0, 26 * s), Vector3.new(36 * s, 0, 0), Vector3.new(-26 * s, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+if not Animate(0.28, function(a)
+local s = EaseOutQuint(a)
+PoseEnemy(enemyFacing, 0, Vector3.one, Vector3.new(22 * s, 0, 0), Vector3.new(-13 * s, 0, 0), Vector3.new(-125 * s, 0, -11 * s), Vector3.new(32 * s, 0, 11 * s), Vector3.new(-5 * s, 0, 0), Vector3.new(16 * s, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+local clashPoint = (enemyFacing.Position + BaconStart.Position) * 0.5 + Vector3.new(0, 1.5, 0)
+SpeedTrail(BaconStart.Position, clashPoint, Color3.fromRGB(0, 200, 255))
+SpeedTrail(enemyFacing.Position, clashPoint, Color3.fromRGB(255, 60, 90))
+
+TargetFOV = 55
+ShakeCamera(0.6, 0.2)
+
+local baconCharge = BaconStart * CFrame.new(4.5, 0, 0)
+
+if not Animate(0.4, function(a)
+local s = EaseOutQuint(a)
+local bcf = BaconStart:Lerp(baconCharge, s)
+local ecf = enemyFacing * CFrame.new(2.8 * s, 0, 0)
+PoseBacon(bcf, 0, Vector3.new(0.94, 1.08, 0.94), Vector3.new(16, 0, 0), Vector3.new(-9, 0, 0), Vector3.new(-110, 0, -16), Vector3.new(-110, 0, 16), Vector3.new(32, 0, 0), Vector3.new(-22, 0, 0))
+PoseEnemy(ecf, 0, Vector3.new(0.94, 1.08, 0.94), Vector3.new(16, 0, 0), Vector3.new(-9, 0, 0), Vector3.new(-110, 0, -16), Vector3.new(-110, 0, 16), Vector3.new(32, 0, 0), Vector3.new(-22, 0, 0))
+end) then return end
+
+TargetFOV = 75
+TriggerImpact(clashPoint, Color3.fromRGB(255, 220, 100), 2.2)
+TriggerShockwave(clashPoint, 1.6, Color3.fromRGB(255, 220, 100))
+ShakeCamera(1.7, 0.6)
+
+task.wait(0.4)
+if not Running or not IsPlaying then return end
+
+local baconClash = baconCharge
+local enemyClash = enemyFacing * CFrame.new(2.8, 0, 0)
+
+if not Animate(0.45, function(a)
+local s = EaseOutQuint(a)
+local bcf = baconClash:Lerp(BaconStart, s)
+local ecf = enemyClash:Lerp(enemyFacing, s)
+PoseBacon(bcf, -0.16 * s, Vector3.one, Vector3.new(11 * (1 - s), 0, 0), Vector3.new(-7 * (1 - s), 0, 0), Vector3.new(-52 * (1 - s), 0, -11), Vector3.new(-52 * (1 - s), 0, 11), Vector3.new(22 * (1 - s), 0, 0), Vector3.new(-16 * (1 - s), 0, 0))
+PoseEnemy(ecf, -0.16 * s, Vector3.one, Vector3.new(11 * (1 - s), 0, 0), Vector3.new(-7 * (1 - s), 0, 0), Vector3.new(-52 * (1 - s), 0, -11), Vector3.new(-52 * (1 - s), 0, 11), Vector3.new(22 * (1 - s), 0, 0), Vector3.new(-16 * (1 - s), 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+TargetFOV = 65
+task.wait(0.25)
+if not Running or not IsPlaying then return end
+
+local enemyFinalCF = enemyFacing
+
+if not Animate(0.34, function(a)
+local s = EaseInOutSine(a)
+PoseEnemy(enemyFinalCF, -0.42 * s, Vector3.new(1 + 0.13 * s, 1 - 0.22 * s, 1 + 0.09 * s), Vector3.new(32 * s, 0, 0), Vector3.new(-16 * s, 0, 0), Vector3.new(-62 * s, 0, -32 * s), Vector3.new(-62 * s, 0, 32 * s), Vector3.new(42 * s, 0, 0), Vector3.new(42 * s, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+local dashTargetPos = enemyFinalCF.Position + Vector3.new(-2.8, 3, 0)
+local dashTo = CFrame.new(dashTargetPos) * BaconBaseRot
+
+SpeedTrail(BaconStart.Position, dashTo.Position, Color3.fromRGB(0, 200, 255))
+
+if not Animate(0.36, function(a)
+local s = EaseOutQuint(a)
+local bcf = BaconStart:Lerp(dashTo, s)
+PoseBacon(bcf, 0, Vector3.new(0.88, 1.18, 0.88), Vector3.new(36, 0, 0), Vector3.new(-21, 0, 0), Vector3.new(-32, 0, -21), Vector3.new(-32, 0, 21), Vector3.new(-26, 0, 0), Vector3.new(26, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+TargetFOV = 60
+ShakeCamera(0.4, 0.15)
+
+local spinCF = dashTo
+
+if not Animate(0.55, function(a)
+local s = EaseOutQuint(a)
+local rotY = math.rad(720 * s)
+local cf = spinCF * CFrame.Angles(0, rotY, 0)
+local lean = math.sin(a * math.pi) * 0.35
+PoseBacon(cf * CFrame.Angles(0, 0, math.rad(85 * math.sin(a * math.pi * 3))), lean, Vector3.one, Vector3.new(0, 0, 95 * math.sin(a * math.pi * 2)), Vector3.new(0, 0, -22), Vector3.new(-32, 0, -88), Vector3.new(-32, 0, 88), Vector3.new(-32 + 64 * a, 0, -16), Vector3.new(32 - 64 * a, 0, 16))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+local hitPos = enemyFinalCF.Position + Vector3.new(0, 2, 0)
+TriggerImpact(hitPos, Color3.fromRGB(0, 240, 255), 2.4)
+TriggerShockwave(hitPos, 1.4, Color3.fromRGB(0, 220, 255))
+ShakeCamera(2.2, 0.7)
+
+TargetFOV = 80
+
+local enemyFlyStart = enemyFinalCF
+local enemyFlyDir = (enemyFinalCF.Position - BaconStart.Position)
+if enemyFlyDir.Magnitude < 0.1 then enemyFlyDir = Vector3.new(-1, 0, 0) end
+enemyFlyDir = enemyFlyDir.Unit
+
+if not Animate(0.75, function(a)
+local s = EaseOutQuint(a)
+local dist = 26 * s
+local yArc = math.sin(a * math.pi) * 7
+local pos = enemyFlyStart.Position + enemyFlyDir * dist + Vector3.new(0, yArc, 0)
+local rot = CFrame.Angles(math.rad(720 * a), math.rad(540 * a), math.rad(360 * a))
+PoseEnemy(CFrame.new(pos) * rot, 0, Vector3.new(1.16, 0.84, 1.16), Vector3.new(-42, 0, 32), Vector3.new(-32, 0, 22), Vector3.new(-42, 0, -74), Vector3.new(-42, 0, 74), Vector3.new(-62, 0, 0), Vector3.new(-62, 0, 0))
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+local finalEnemyPos = enemyFlyStart.Position + enemyFlyDir * 26
+finalEnemyPos = Vector3.new(finalEnemyPos.X, ArenaOrigin.Position.Y + 7, finalEnemyPos.Z)
+
+TriggerShockwave(finalEnemyPos - Vector3.new(0, 1, 0), 1.5, Color3.fromRGB(255, 60, 90))
+TriggerImpact(finalEnemyPos, Color3.fromRGB(255, 60, 90), 1.7)
+ShakeCamera(1.5, 0.5)
+
+if not Animate(0.55, function(a)
+local s = EaseOutQuint(a)
+local yOff = -1.2 * (1 - s) + 0.12 * math.sin(a * math.pi)
+PoseEnemy(CFrame.new(finalEnemyPos) * CFrame.Angles(math.rad(-90), math.rad(180 * s), math.rad(22 * s)), yOff, Vector3.one, Vector3.zero, Vector3.new(16, 0, -11), Vector3.new(-32, 0, -42), Vector3.new(-32, 0, 42), Vector3.new(16, 0, 0), Vector3.new(16, 0, 0))
+end) then return end
+
+task.wait(0.45)
+if not Running or not IsPlaying then return end
+
+TargetFOV = 65
+
+    local airBacon = ArenaOrigin * CFrame.new(-5, 8, 0) * BaconBaseRot
+    local airEnemy = ArenaOrigin * CFrame.new(5, 8, 0) * EnemyBaseRot
+    TriggerImpact(ArenaOrigin.Position + Vector3.new(0, 8, 0), Color3.fromRGB(255, 190, 70), 1.4)
+    SpeedTrail(airBacon.Position, airEnemy.Position, Color3.fromRGB(0, 220, 255))
+
+    if not Animate(0.32, function(a)
+        local s = EaseOutQuint(a)
+        local bcf = airBacon:Lerp(ArenaOrigin * CFrame.new(-1.5, 11, 0) * BaconBaseRot, s)
+        PoseBacon(bcf * CFrame.Angles(math.rad(-25 * s), 0, math.rad(-18 * s)), 0, Vector3.new(0.9, 1.12, 0.9), Vector3.new(-25, 0, 0), Vector3.new(-12, 0, 0), Vector3.new(-120, 0, -18), Vector3.new(-120, 0, 18), Vector3.new(35, 0, 0), Vector3.new(35, 0, 0))
+        PoseEnemy(airEnemy, 0, Vector3.one, Vector3.new(8 * s, 0, 0), Vector3.new(-8 * s, 0, 0), Vector3.new(-30, 0, -25), Vector3.new(-30, 0, 25), Vector3.new(20, 0, 0), Vector3.new(20, 0, 0))
+    end) then return end
+
+    TriggerImpact(EnemyTorso.Position, Color3.fromRGB(0, 220, 255), 1.5)
+    ShakeCamera(1.0, 0.3)
+    if not Animate(0.26, function(a)
+        local s = EaseOutQuint(a)
+        local bcf = (ArenaOrigin * CFrame.new(-1.5, 11, 0) * BaconBaseRot):Lerp(ArenaOrigin * CFrame.new(1, 9, 0) * BaconBaseRot, s)
+        local ecf = airEnemy:Lerp(ArenaOrigin * CFrame.new(7, 10, 0) * EnemyBaseRot, s)
+        PoseBacon(bcf * CFrame.Angles(0, math.rad(360 * s), math.rad(35 * s)), 0, Vector3.new(0.92, 1.08, 0.92), Vector3.new(-35, 0, 0), Vector3.new(-8, 0, 0), Vector3.new(-135, 0, -30), Vector3.new(65, 0, 30), Vector3.new(20, 0, 0), Vector3.new(-20, 0, 0))
+        PoseEnemy(ecf * CFrame.Angles(math.rad(360 * s), math.rad(180 * s), math.rad(25 * s)), 0, Vector3.new(1.05, 0.92, 1.05), Vector3.new(-30, 0, 18), Vector3.new(20, 0, 0), Vector3.new(-80, 0, -55), Vector3.new(-80, 0, 55), Vector3.new(-30, 0, 0), Vector3.new(-30, 0, 0))
+    end) then return end
+
+    TriggerShockwave(EnemyTorso.Position, 1.25, Color3.fromRGB(255, 90, 120))
+    TriggerImpact(EnemyTorso.Position, Color3.fromRGB(255, 90, 120), 1.8)
+    SpeedTrail(BaconTorso.Position, EnemyTorso.Position, Color3.fromRGB(0, 240, 255))
+    ShakeCamera(1.5, 0.45)
+
+    if not Animate(0.42, function(a)
+        local s = EaseOutQuint(a)
+        local bcf = (ArenaOrigin * CFrame.new(1, 9, 0) * BaconBaseRot):Lerp(ArenaOrigin * CFrame.new(3, 12, 0) * BaconBaseRot, s)
+        local ecf = (ArenaOrigin * CFrame.new(7, 10, 0) * EnemyBaseRot):Lerp(ArenaOrigin * CFrame.new(10, 13, 0) * EnemyBaseRot, s)
+        PoseBacon(bcf * CFrame.Angles(0, math.rad(540 * s), math.rad(-65 * math.sin(a * math.pi))), 0, Vector3.new(0.88, 1.15, 0.88), Vector3.new(30, 0, 0), Vector3.new(-15, 0, 0), Vector3.new(-45, 0, -75), Vector3.new(-45, 0, 75), Vector3.new(-35, 0, 0), Vector3.new(35, 0, 0))
+        PoseEnemy(ecf * CFrame.Angles(math.rad(540 * s), math.rad(360 * s), math.rad(40 * s)), 0, Vector3.new(1.08, 0.9, 1.08), Vector3.new(-38, 0, 28), Vector3.new(18, 0, 0), Vector3.new(-95, 0, -70), Vector3.new(-95, 0, 70), Vector3.new(-45, 0, 0), Vector3.new(-45, 0, 0))
+    end) then return end
+
+    local skyFinisherPos = ArenaOrigin.Position + Vector3.new(0, 10, 0)
+    TriggerImpact(skyFinisherPos, Color3.fromRGB(255, 210, 90), 2.3)
+    TriggerShockwave(skyFinisherPos, 1.8, Color3.fromRGB(0, 220, 255))
+    ShakeCamera(2.0, 0.55)
+
+    if not Animate(0.35, function(a)
+        local s = EaseInOutSine(a)
+        local bcf = (ArenaOrigin * CFrame.new(3, 12, 0) * BaconBaseRot):Lerp(ArenaOrigin * CFrame.new(0, 10, 0) * BaconBaseRot, s)
+        local ecf = (ArenaOrigin * CFrame.new(10, 13, 0) * EnemyBaseRot):Lerp(ArenaOrigin * CFrame.new(2, 9, 0) * EnemyBaseRot, s)
+        PoseBacon(bcf, 0, Vector3.one, Vector3.new(-20 * s, 0, 0), Vector3.new(-8 * s, 0, 0), Vector3.new(-110 * s, 0, -25), Vector3.new(-110 * s, 0, 25), Vector3.new(25 * s, 0, 0), Vector3.new(25 * s, 0, 0))
+        PoseEnemy(ecf * CFrame.Angles(math.rad(360 * s), math.rad(180 * s), math.rad(25 * s)), 0, Vector3.one, Vector3.new(25 * s, 0, 0), Vector3.new(15 * s, 0, 0), Vector3.new(-75 * s, 0, -40), Vector3.new(-75 * s, 0, 40), Vector3.new(30 * s, 0, 0), Vector3.new(30 * s, 0, 0))
+    end) then return end
+
+TargetFOV = 43
+local faceOffBacon = ArenaOrigin * CFrame.new(-4.2, 3, 0) * BaconBaseRot
+local faceOffEnemy = ArenaOrigin * CFrame.new(4.2, 3, 0) * EnemyBaseRot
+if not Animate(0.75, function(a)
+    local s = EaseInOutSine(a)
+    local bob = math.sin(a * math.pi * 2) * 0.12
+    PoseBacon(faceOffBacon, bob, Vector3.one, Vector3.new(2 * s, 0, 0), Vector3.new(-3 * s, 0, 0), Vector3.new(-18 - 5 * s, 0, -8), Vector3.new(-18 - 5 * s, 0, 8), Vector3.new(4 * s, 0, 0), Vector3.new(-4 * s, 0, 0))
+    PoseEnemy(faceOffEnemy, -bob, Vector3.one, Vector3.new(2 * s, 0, 0), Vector3.new(-3 * s, 0, 0), Vector3.new(-18 - 5 * s, 0, -8), Vector3.new(-18 - 5 * s, 0, 8), Vector3.new(-4 * s, 0, 0), Vector3.new(4 * s, 0, 0))
+end) then return end
+
+PlaySFX("Slash", 0.8, 1.15)
+if not Animate(0.32, function(a)
+    local s = EaseOutQuint(a)
+    local bcf = faceOffBacon:Lerp(faceOffBacon * CFrame.new(2.2, 0.4, 0) * CFrame.Angles(0, 0, math.rad(-16 * s)), s)
+    PoseBacon(bcf, 0, Vector3.new(0.94, 1.08, 0.94), Vector3.new(-12, 0, 0), Vector3.new(8, 0, 0), Vector3.new(-120 * s, 0, -18), Vector3.new(-80, 0, 18), Vector3.new(25, 0, 0), Vector3.new(-12, 0, 0))
+    PoseEnemy(faceOffEnemy, 0, Vector3.one, Vector3.new(5 * s, 0, 0), Vector3.zero, Vector3.new(-24, 0, -14), Vector3.new(-24, 0, 14), Vector3.new(8, 0, 0), Vector3.new(-8, 0, 0))
+end) then return end
+TriggerImpact(EnemyTorso.Position, Color3.fromRGB(0, 220, 255), 1.1)
+ShakeCamera(0.85, 0.25)
+
+if not Animate(0.42, function(a)
+    local s = EaseOutQuint(a)
+    local eCF = faceOffEnemy:Lerp(faceOffEnemy * CFrame.new(1.5, 1.2, 0) * CFrame.Angles(0, 0, math.rad(48 * s)), s)
+    local bCF = (faceOffBacon * CFrame.new(2.2, 0.4, 0)):Lerp(faceOffBacon * CFrame.new(1.2, 0, 0), s)
+    PoseBacon(bCF, 0, Vector3.one, Vector3.new(12, 0, 0), Vector3.new(-8, 0, 0), Vector3.new(-30, 0, -20), Vector3.new(-112, 0, 18), Vector3.new(18, 0, 0), Vector3.new(-12, 0, 0))
+    PoseEnemy(eCF, 0, Vector3.new(0.94, 1.08, 0.94), Vector3.new(-35 * s, 0, 0), Vector3.new(18 * s, 0, 0), Vector3.new(-88, 0, -36), Vector3.new(-65, 0, 28), Vector3.new(24, 0, 0), Vector3.new(35, 0, 0))
+end) then return end
+TriggerShockwave(EnemyTorso.Position, 0.75, Color3.fromRGB(255, 90, 120))
+
+TargetFOV = 48
+local counterStart = ArenaOrigin * CFrame.new(-2.7, 3, 0) * BaconBaseRot
+local counterEnd = ArenaOrigin * CFrame.new(1.8, 4.2, 0) * BaconBaseRot
+if not Animate(0.5, function(a)
+    local s = EaseOutQuint(a)
+    local bcf = counterStart:Lerp(counterEnd, s) * CFrame.Angles(math.rad(-12 * s), 0, math.rad(-22 * s))
+    local ecf = faceOffEnemy:Lerp(ArenaOrigin * CFrame.new(5.6, 3.2, 0) * EnemyBaseRot, s)
+    PoseBacon(bcf, 0.15 * math.sin(a * math.pi), Vector3.new(0.9, 1.12, 0.9), Vector3.new(-18, 0, 0), Vector3.new(8, 0, 0), Vector3.new(-132 * s, 0, -24), Vector3.new(-70, 0, 20), Vector3.new(28, 0, 0), Vector3.new(-22, 0, 0))
+    PoseEnemy(ecf, 0, Vector3.new(1.02, 0.96, 1.02), Vector3.new(28 * s, 0, 0), Vector3.new(-12 * s, 0, 0), Vector3.new(-70, 0, -35), Vector3.new(-105, 0, 30), Vector3.new(-24, 0, 0), Vector3.new(28, 0, 0))
+end) then return end
+SpeedTrail(BaconTorso.Position, EnemyTorso.Position, Color3.fromRGB(0, 220, 255))
+TriggerImpact(EnemyTorso.Position, Color3.fromRGB(255, 220, 100), 1.6)
+ShakeCamera(1.25, 0.38)
+
+if not Animate(0.62, function(a)
+    local s = EaseInOutSine(a)
+    local bcf = counterEnd:Lerp(ArenaOrigin * CFrame.new(-0.5, 6.5, 0) * BaconBaseRot, s)
+    local ecf = (ArenaOrigin * CFrame.new(5.6, 3.2, 0) * EnemyBaseRot):Lerp(ArenaOrigin * CFrame.new(4.8, 5.3, 0) * EnemyBaseRot, s)
+    PoseBacon(bcf * CFrame.Angles(0, 0, math.rad(-360 * s)), 0, Vector3.new(0.9, 1.1, 0.9), Vector3.new(-18, 0, 0), Vector3.new(8, 0, 0), Vector3.new(-105, 0, -32), Vector3.new(48, 0, 32), Vector3.new(22, 0, 0), Vector3.new(-18, 0, 0))
+    PoseEnemy(ecf * CFrame.Angles(math.rad(180 * s), 0, math.rad(18 * s)), 0, Vector3.new(1.02, 0.95, 1.02), Vector3.new(-24, 0, 0), Vector3.new(14, 0, 0), Vector3.new(-82, 0, -24), Vector3.new(-82, 0, 24), Vector3.new(24, 0, 0), Vector3.new(24, 0, 0))
+end) then return end
+TriggerShockwave((BaconTorso.Position + EnemyTorso.Position) * 0.5, 1.25, Color3.fromRGB(255, 190, 70))
+TriggerImpact((BaconTorso.Position + EnemyTorso.Position) * 0.5, Color3.fromRGB(255, 190, 70), 1.9)
+ShakeCamera(1.6, 0.45)
+
+if not Animate(0.55, function(a)
+    local s = EaseOutQuint(a)
+    local bcf = (ArenaOrigin * CFrame.new(-0.5, 6.5, 0) * BaconBaseRot):Lerp(ArenaOrigin * CFrame.new(-3.2, 3.4, 0) * BaconBaseRot, s)
+    local ecf = (ArenaOrigin * CFrame.new(4.8, 5.3, 0) * EnemyBaseRot):Lerp(ArenaOrigin * CFrame.new(4.2, 2.7, 0) * EnemyBaseRot, s)
+    PoseBacon(bcf, -0.2 * s, Vector3.new(0.95, 1.06, 0.95), Vector3.new(18 * s, 0, 0), Vector3.new(-12 * s, 0, 0), Vector3.new(-115, 0, -26), Vector3.new(-42, 0, 20), Vector3.new(32, 0, 0), Vector3.new(-24, 0, 0))
+    PoseEnemy(ecf * CFrame.Angles(0, 0, math.rad(32 * s)), 0, Vector3.new(0.95, 1.05, 0.95), Vector3.new(-22 * s, 0, 0), Vector3.new(12 * s, 0, 0), Vector3.new(-72, 0, -28), Vector3.new(-118, 0, 25), Vector3.new(-26, 0, 0), Vector3.new(30, 0, 0))
+end) then return end
+
+TargetFOV = 40
+if not Animate(0.8, function(a)
+    local s = EaseInOutSine(a)
+    local pulse = math.sin(a * math.pi * 4) * 0.08
+    PoseBacon(ArenaOrigin * CFrame.new(-3.2, 3.4 + pulse, 0) * BaconBaseRot, 0, Vector3.one, Vector3.new(2 * s, 0, 0), Vector3.zero, Vector3.new(-20, 0, -8), Vector3.new(-20, 0, 8), Vector3.zero, Vector3.zero)
+    PoseEnemy(ArenaOrigin * CFrame.new(4.2, 2.7 - pulse, 0) * EnemyBaseRot, 0, Vector3.one, Vector3.new(2 * s, 0, 0), Vector3.zero, Vector3.new(-20, 0, -8), Vector3.new(-20, 0, 8), Vector3.zero, Vector3.zero)
+end) then return end
+TargetFOV = 52
+
+local victoryStart = dashTo
+local victoryEnd = BaconStart
+
+if not Animate(0.65, function(a)
+local s = EaseOutQuint(a)
+local cf = victoryStart:Lerp(victoryEnd, s)
+PoseBacon(cf, 0, Vector3.one, Vector3.zero, Vector3.zero, Vector3.new(-16 - 16 * math.sin(a * math.pi * 2), 0, -13), Vector3.new(-16 - 16 * math.sin(a * math.pi * 2), 0, 13), Vector3.zero, Vector3.zero)
+end) then return end
+
+if not Running or not IsPlaying then return end
+
+if not Animate(0.55, function(a)
+local s = EaseInOutSine(a)
+PoseBacon(victoryEnd, 0, Vector3.one, Vector3.zero, Vector3.zero, Vector3.new(-88 * s, 0, -26 * s), Vector3.new(-88 * s, 0, 26 * s), Vector3.zero, Vector3.zero)
+end) then return end
+
+task.wait(0.35)
+if not Running or not IsPlaying then return end
+
+if not Animate(0.45, function(a)
+local s = EaseInOutSine(a)
+local bounce = math.sin(a * math.pi * 3) * 0.16 * (1 - s)
+PoseBacon(victoryEnd + Vector3.new(0, bounce, 0), 0, Vector3.one, Vector3.zero, Vector3.new(-6 * s, 0, 0), Vector3.new(-84 * s, 0, -24 * s), Vector3.new(-84 * s, 0, 24 * s), Vector3.new(9 * s, 0, 0), Vector3.new(-9 * s, 0, 0))
+end) then return end
+
+TargetFOV = 70
+task.wait(1.3)
+
+if not Running or not IsPlaying then return end
+end
+
+task.spawn(function()
+    while Running do
+        if IsPlaying then
+            local success, err = pcall(ExecuteAnimation)
+            if not success then
+                warn("Animation error:", err)
+                task.wait(0.6)
+            else
+                task.wait(0.45)
+            end
+        else
+            task.wait(0.1)
+        end
+    end
+end)
