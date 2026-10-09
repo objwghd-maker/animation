@@ -2,131 +2,134 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local Lighting = game:GetService("Lighting")
 local Debris = game:GetService("Debris")
 
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Camera = Workspace.CurrentCamera
 
-if Workspace:FindFirstChild("CinematicBaconStudio") then
-    Workspace.CinematicBaconStudio:Destroy()
+if not Camera then
+    repeat
+        task.wait()
+        Camera = Workspace.CurrentCamera
+    until Camera
 end
+
+local OldStudio = Workspace:FindFirstChild("PhysicsAnimationStudio")
+if OldStudio then
+    OldStudio:Destroy()
+end
+
+local OldUI = PlayerGui:FindFirstChild("BaconStudioUI")
+if OldUI then
+    OldUI:Destroy()
+end
+
+local OriginalCameraType = Camera.CameraType
+local OriginalCameraSubject = Camera.CameraSubject
+local OriginalFOV = Camera.FieldOfView
 
 local Studio = Instance.new("Folder")
-Studio.Name = "CinematicBaconStudio"
+Studio.Name = "PhysicsAnimationStudio"
 Studio.Parent = Workspace
 
-Lighting.ClockTime = 19
-Lighting.Brightness = 1.5
-Lighting.GlobalShadows = true
-Lighting.OutdoorAmbient = Color3.fromRGB(15, 15, 25)
-Lighting.FogColor = Color3.fromRGB(10, 10, 20)
-Lighting.FogEnd = 150
+local Running = true
+local Connections = {}
+local Tweens = {}
+local CameraShakeIntensity = 0
+local TargetFOV = 65
 
-local Bloom = Instance.new("BloomEffect")
-Bloom.Intensity = 0.5
-Bloom.Size = 24
-Bloom.Threshold = 0.8
-Bloom.Parent = Lighting
-
-local StageFloor = Instance.new("Part")
-StageFloor.Size = Vector3.new(120, 2, 120)
-StageFloor.Position = Vector3.new(0, -1, 0)
-StageFloor.Anchored = true
-StageFloor.Material = Enum.Material.Reflective
-StageFloor.Color = Color3.fromRGB(15, 18, 25)
-StageFloor.Reflectance = 0.3
-StageFloor.Parent = Studio
-
-local RingLight = Instance.new("Part")
-RingLight.Size = Vector3.new(18, 0.2, 18)
-RingLight.Position = Vector3.new(0, 0.05, 0)
-RingLight.Anchored = true
-RingLight.Material = Enum.Material.Neon
-RingLight.Color = Color3.fromRGB(0, 180, 255)
-RingLight.Shape = Enum.PartType.Cylinder
-RingLight.Orientation = Vector3.new(0, 0, 90)
-RingLight.Parent = Studio
-
-for i = 1, 8 do
-    local angle = (i / 8) * math.pi * 2
-    local LightPillar = Instance.new("Part")
-    LightPillar.Size = Vector3.new(1.5, 20, 1.5)
-    LightPillar.Position = Vector3.new(math.cos(angle) * 16, 10, math.sin(angle) * 16)
-    LightPillar.Anchored = true
-    LightPillar.Material = Enum.Material.SmoothPlastic
-    LightPillar.Color = Color3.fromRGB(20, 25, 35)
-    LightPillar.Parent = Studio
-
-    local NeonStrip = Instance.new("Part")
-    NeonStrip.Size = Vector3.new(0.3, 20, 0.3)
-    NeonStrip.Position = LightPillar.Position + Vector3.new(0, 0, -0.7)
-    NeonStrip.Anchored = true
-    NeonStrip.Material = Enum.Material.Neon
-    NeonStrip.Color = Color3.fromRGB(0, 220, 255)
-    NeonStrip.Parent = Studio
-
-    local Spot = Instance.new("SpotLight")
-    Spot.Brightness = 4
-    Spot.Range = 30
-    Spot.Angle = 60
-    Spot.Color = Color3.fromRGB(0, 200, 255)
-    Spot.Face = Enum.NormalId.Bottom
-    Spot.Parent = LightPillar
+local function TrackConnection(connection)
+    table.insert(Connections, connection)
+    return connection
 end
 
-local MainSpot = Instance.new("SpotLight")
-MainSpot.Brightness = 8
-MainSpot.Range = 40
-MainSpot.Angle = 45
-MainSpot.Color = Color3.fromRGB(255, 255, 255)
-MainSpot.Parent = StageFloor
+local Character = LocalPlayer.Character
+local HRP = Character and Character:FindFirstChild("HumanoidRootPart")
 
-local DustPart = Instance.new("Part")
-DustPart.Size = Vector3.new(1, 1, 1)
-DustPart.Position = Vector3.new(0, 0.2, 0)
-DustPart.Anchored = true
-DustPart.Transparency = 1
-DustPart.CanCollide = false
-DustPart.Parent = Studio
+if not HRP then
+    HRP = LocalPlayer.CharacterAdded:Wait():WaitForChild("HumanoidRootPart")
+end
 
-local Emitter = Instance.new("ParticleEmitter")
-Emitter.Texture = "rbxassetid://24366117"
-Emitter.Rate = 0
-Emitter.Lifetime = NumberRange.new(0.4, 0.8)
-Emitter.Speed = NumberRange.new(6, 12)
-Emitter.VelocitySpread = 360
-Emitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 2.5)})
-Emitter.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1)})
-Emitter.Color = ColorSequence.new(Color3.fromRGB(200, 220, 255))
-Emitter.Parent = DustPart
+local BaseCFrame = HRP.CFrame * CFrame.new(0, 0, -15) * CFrame.Angles(0, math.pi, 0)
+
+local StageFloor = Instance.new("Part")
+StageFloor.Name = "StageFloor"
+StageFloor.Size = Vector3.new(30, 1, 30)
+StageFloor.CFrame = BaseCFrame * CFrame.new(0, -0.5, 0)
+StageFloor.Anchored = true
+StageFloor.CanCollide = true
+StageFloor.Material = Enum.Material.SmoothPlastic
+StageFloor.Color = Color3.fromRGB(20, 22, 28)
+StageFloor.Parent = Studio
+
+local GridGlow = Instance.new("Part")
+GridGlow.Name = "GridGlow"
+GridGlow.Size = Vector3.new(30.5, 0.1, 30.5)
+GridGlow.CFrame = BaseCFrame * CFrame.new(0, 0.03, 0)
+GridGlow.Anchored = true
+GridGlow.CanCollide = false
+GridGlow.Material = Enum.Material.Neon
+GridGlow.Color = Color3.fromRGB(0, 150, 255)
+GridGlow.Transparency = 0.5
+GridGlow.Parent = Studio
+
+local function CreateLight(name, offset, brightness, range, color, angle)
+    local holder = Instance.new("Part")
+    holder.Name = name
+    holder.Size = Vector3.one
+    holder.CFrame = BaseCFrame * CFrame.new(offset)
+    holder.Anchored = true
+    holder.Transparency = 1
+    holder.CanCollide = false
+    holder.Parent = Studio
+
+    local light = Instance.new("SpotLight")
+    light.Brightness = brightness
+    light.Range = range
+    light.Angle = angle
+    light.Color = color
+    light.Face = Enum.NormalId.Front
+    light.Parent = holder
+
+    return holder
+end
+
+CreateLight("KeyLight", Vector3.new(-6, 12, -8), 6, 35, Color3.fromRGB(255, 240, 220), 70)
+CreateLight("FillLight", Vector3.new(8, 6, -6), 3, 25, Color3.fromRGB(100, 180, 255), 80)
 
 local Bacon = Instance.new("Model")
-Bacon.Name = "BaconMaster"
+Bacon.Name = "BaconPhysicsActor"
 Bacon.Parent = Studio
 
-local Root = Instance.new("Part")
-Root.Name = "HumanoidRootPart"
-Root.Size = Vector3.new(2, 2, 1)
-Root.Position = Vector3.new(0, 3, 0)
-Root.Transparency = 1
-Root.Anchored = true
-Root.Parent = Bacon
+local function CreatePart(name, size, color, transparency)
+    local part = Instance.new("Part")
+    part.Name = name
+    part.Size = size
+    part.Color = color
+    part.Transparency = transparency or 0
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.CastShadow = true
+    part.TopSurface = Enum.SurfaceType.Smooth
+    part.BottomSurface = Enum.SurfaceType.Smooth
+    part.Parent = Bacon
+    return part
+end
+
+local Root = CreatePart("HumanoidRootPart", Vector3.new(2, 2, 1), Color3.new(1, 1, 1), 1)
+Root.CFrame = BaseCFrame * CFrame.new(0, 3, 0)
 Bacon.PrimaryPart = Root
 
-local Torso = Instance.new("Part")
-Torso.Name = "Torso"
-Torso.Size = Vector3.new(2, 2, 1)
-Torso.Color = Color3.fromRGB(13, 105, 172)
-Torso.CanCollide = false
-Torso.Parent = Bacon
-
-local Head = Instance.new("Part")
-Head.Name = "Head"
-Head.Size = Vector3.new(2, 1, 1)
-Head.Color = Color3.fromRGB(245, 205, 48)
-Head.CanCollide = false
-Head.Parent = Bacon
+local Torso = CreatePart("Torso", Vector3.new(2, 2, 1), Color3.fromRGB(13, 105, 172))
+local Head = CreatePart("Head", Vector3.new(2, 1, 1), Color3.fromRGB(245, 205, 48))
+local LeftArm = CreatePart("Left Arm", Vector3.new(1, 2, 1), Color3.fromRGB(245, 205, 48))
+local RightArm = CreatePart("Right Arm", Vector3.new(1, 2, 1), Color3.fromRGB(245, 205, 48))
+local LeftLeg = CreatePart("Left Leg", Vector3.new(1, 2, 1), Color3.fromRGB(37, 37, 37))
+local RightLeg = CreatePart("Right Leg", Vector3.new(1, 2, 1), Color3.fromRGB(37, 37, 37))
+local HairHandle = CreatePart("HairHandle", Vector3.one, Color3.fromRGB(40, 25, 15), 1)
 
 local HeadMesh = Instance.new("SpecialMesh")
 HeadMesh.MeshType = Enum.MeshType.Head
@@ -134,60 +137,16 @@ HeadMesh.Scale = Vector3.new(1.25, 1.25, 1.25)
 HeadMesh.Parent = Head
 
 local Face = Instance.new("Decal")
-Face.Name = "face"
 Face.Texture = "rbxassetid://7074786"
 Face.Face = Enum.NormalId.Front
 Face.Parent = Head
 
-local LeftArm = Instance.new("Part")
-LeftArm.Name = "Left Arm"
-LeftArm.Size = Vector3.new(1, 2, 1)
-LeftArm.Color = Color3.fromRGB(245, 205, 48)
-LeftArm.CanCollide = false
-LeftArm.Parent = Bacon
-
-local RightArm = Instance.new("Part")
-RightArm.Name = "Right Arm"
-RightArm.Size = Vector3.new(1, 2, 1)
-RightArm.Color = Color3.fromRGB(245, 205, 48)
-RightArm.CanCollide = false
-RightArm.Parent = Bacon
-
-local LeftLeg = Instance.new("Part")
-LeftLeg.Name = "Left Leg"
-LeftLeg.Size = Vector3.new(1, 2, 1)
-LeftLeg.Color = Color3.fromRGB(37, 37, 37)
-LeftLeg.CanCollide = false
-LeftLeg.Parent = Bacon
-
-local RightLeg = Instance.new("Part")
-RightLeg.Name = "Right Leg"
-RightLeg.Size = Vector3.new(1, 2, 1)
-RightLeg.Color = Color3.fromRGB(37, 37, 37)
-RightLeg.CanCollide = false
-RightLeg.Parent = Bacon
-
-local HairAcc = Instance.new("Accessory")
-HairAcc.Name = "PalHair"
-
-local HairHandle = Instance.new("Part")
-HairHandle.Name = "Handle"
-HairHandle.Size = Vector3.new(1, 1, 1)
-HairHandle.CanCollide = false
-HairHandle.Parent = HairAcc
-
 local HairMesh = Instance.new("SpecialMesh")
+HairMesh.MeshType = Enum.MeshType.FileMesh
 HairMesh.MeshId = "rbxassetid://62234403"
 HairMesh.TextureId = "rbxassetid://62234400"
-HairMesh.Scale = Vector3.new(1.05, 1.05, 1.05)
+HairMesh.Scale = Vector3.one
 HairMesh.Parent = HairHandle
-
-local HairWeld = Instance.new("Weld")
-HairWeld.Part0 = HairHandle
-HairWeld.Part1 = Head
-HairWeld.C0 = CFrame.new(0, -0.5, 0.15)
-HairWeld.Parent = HairHandle
-HairAcc.Parent = Bacon
 
 local Shirt = Instance.new("Shirt")
 Shirt.ShirtTemplate = "rbxassetid://144076358"
@@ -198,243 +157,351 @@ Pants.PantsTemplate = "rbxassetid://144076760"
 Pants.Parent = Bacon
 
 local Humanoid = Instance.new("Humanoid")
-Humanoid.DisplayName = "3D Bacon Animator"
+Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 Humanoid.Parent = Bacon
 
-local RootJoint = Instance.new("Motor6D")
-RootJoint.Name = "RootJoint"
-RootJoint.Part0 = Root
-RootJoint.Part1 = Torso
-RootJoint.Parent = Root
+local function SolveJoints(rootCF, torsoYOffset, squash, torsoRot, headRot, leftArmRot, rightArmRot, leftLegRot, rightLegRot)
+    local sx = squash.X
+    local sy = squash.Y
+    local sz = squash.Z
 
-local Neck = Instance.new("Motor6D")
-Neck.Name = "Neck"
-Neck.Part0 = Torso
-Neck.Part1 = Head
-Neck.C0 = CFrame.new(0, 1, 0)
-Neck.C1 = CFrame.new(0, -0.5, 0)
-Neck.Parent = Torso
+    Torso.Size = Vector3.new(2 * sx, 2 * sy, sz)
+    Torso.CFrame = rootCF * CFrame.new(0, torsoYOffset, 0) * torsoRot
 
-local LeftShoulder = Instance.new("Motor6D")
-LeftShoulder.Name = "Left Shoulder"
-LeftShoulder.Part0 = Torso
-LeftShoulder.Part1 = LeftArm
-LeftShoulder.C0 = CFrame.new(-1.5, 0.5, 0)
-LeftShoulder.C1 = CFrame.new(0, 0.5, 0)
-LeftShoulder.Parent = Torso
+    local torsoCF = Torso.CFrame
 
-local RightShoulder = Instance.new("Motor6D")
-RightShoulder.Name = "Right Shoulder"
-RightShoulder.Part0 = Torso
-RightShoulder.Part1 = RightArm
-RightShoulder.C0 = CFrame.new(1.5, 0.5, 0)
-RightShoulder.C1 = CFrame.new(0, 0.5, 0)
-RightShoulder.Parent = Torso
+    Head.CFrame = torsoCF * CFrame.new(0, sy + 0.5, 0) * headRot
+    HairHandle.CFrame = Head.CFrame * CFrame.new(0, 0.45, -0.15)
 
-local LeftHip = Instance.new("Motor6D")
-LeftHip.Name = "Left Hip"
-LeftHip.Part0 = Torso
-LeftHip.Part1 = LeftLeg
-LeftHip.C0 = CFrame.new(-0.5, -1, 0)
-LeftHip.C1 = CFrame.new(0, 1, 0)
-LeftHip.Parent = Torso
+    LeftArm.CFrame = torsoCF * CFrame.new(-sx - 0.5, 0, 0) * leftArmRot
+    RightArm.CFrame = torsoCF * CFrame.new(sx + 0.5, 0, 0) * rightArmRot
 
-local RightHip = Instance.new("Motor6D")
-RightHip.Name = "Right Hip"
-RightHip.Part0 = Torso
-RightHip.Part1 = RightLeg
-RightHip.C0 = CFrame.new(0.5, -1, 0)
-RightHip.C1 = CFrame.new(0, 1, 0)
-RightHip.Parent = Torso
+    LeftLeg.CFrame = torsoCF * CFrame.new(-0.5 * sx, -sy - 1, 0) * leftLegRot
+    RightLeg.CFrame = torsoCF * CFrame.new(0.5 * sx, -sy - 1, 0) * rightLegRot
+end
+
+local function Pose(rootCF, y, scale, tr, hr, lar, rar, llr, rlr)
+    SolveJoints(
+        rootCF,
+        y,
+        scale,
+        CFrame.Angles(math.rad(tr.X), math.rad(tr.Y), math.rad(tr.Z)),
+        CFrame.Angles(math.rad(hr.X), math.rad(hr.Y), math.rad(hr.Z)),
+        CFrame.Angles(math.rad(lar.X), math.rad(lar.Y), math.rad(lar.Z)),
+        CFrame.Angles(math.rad(rar.X), math.rad(rar.Y), math.rad(rar.Z)),
+        CFrame.Angles(math.rad(llr.X), math.rad(llr.Y), math.rad(llr.Z)),
+        CFrame.Angles(math.rad(rlr.X), math.rad(rlr.Y), math.rad(rlr.Z))
+    )
+end
+
+local function SmoothStep(a)
+    a = math.clamp(a, 0, 1)
+    return a * a * (3 - 2 * a)
+end
+
+local function EaseOutCubic(a)
+    a = math.clamp(a, 0, 1)
+    return 1 - (1 - a) ^ 3
+end
+
+local function WaitFrame()
+    return RunService.RenderStepped:Wait()
+end
+
+local function Animate(duration, callback)
+    local elapsed = 0
+
+    while Running and elapsed < duration do
+        local dt = WaitFrame()
+        if not Running then
+            return false
+        end
+
+        dt = math.clamp(dt, 0, 1 / 20)
+        elapsed = math.min(elapsed + dt, duration)
+
+        callback(elapsed / duration, elapsed, dt)
+    end
+
+    return Running
+end
+
+local function TriggerShockwave(position)
+    local ring = Instance.new("Part")
+    ring.Name = "LandingShockwave"
+    ring.Shape = Enum.PartType.Cylinder
+    ring.Size = Vector3.new(0.06, 0.5, 0.5)
+    ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
+    ring.Anchored = true
+    ring.CanCollide = false
+    ring.CanTouch = false
+    ring.CanQuery = false
+    ring.Material = Enum.Material.Neon
+    ring.Color = Color3.fromRGB(0, 200, 255)
+    ring.Transparency = 0.1
+    ring.Parent = Studio
+
+    local tween = TweenService:Create(
+        ring,
+        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            Size = Vector3.new(0.06, 12, 12),
+            Transparency = 1
+        }
+    )
+
+    table.insert(Tweens, tween)
+    tween:Play()
+    Debris:AddItem(ring, 0.6)
+end
+
+local function RestoreCamera()
+    if not Camera then
+        return
+    end
+
+    Camera.CameraType = OriginalCameraType
+    Camera.CameraSubject = OriginalCameraSubject
+    Camera.FieldOfView = OriginalFOV
+end
+
+local function Cleanup()
+    if not Running then
+        return
+    end
+
+    Running = false
+
+    for _, connection in ipairs(Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+
+    for _, tween in ipairs(Tweens) do
+        pcall(function()
+            tween:Cancel()
+        end)
+    end
+
+    RestoreCamera()
+
+    if Studio.Parent then
+        Studio:Destroy()
+    end
+
+    local ui = PlayerGui:FindFirstChild("BaconStudioUI")
+    if ui then
+        ui:Destroy()
+    end
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BaconStudioUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 100
+ScreenGui.Parent = PlayerGui
+
+local StopBtn = Instance.new("TextButton")
+StopBtn.Name = "StopAnimation"
+StopBtn.Size = UDim2.new(0, 180, 0, 48)
+StopBtn.Position = UDim2.new(0.04, 0, 0.78, 0)
+StopBtn.BackgroundColor3 = Color3.fromRGB(190, 35, 45)
+StopBtn.Text = "ปิดฉากอนิเมชัน"
+StopBtn.TextColor3 = Color3.new(1, 1, 1)
+StopBtn.TextSize = 16
+StopBtn.Font = Enum.Font.SourceSansBold
+StopBtn.AutoButtonColor = true
+StopBtn.Parent = ScreenGui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 8)
+Corner.Parent = StopBtn
+
+TrackConnection(StopBtn.Activated:Connect(Cleanup))
 
 Camera.CameraType = Enum.CameraType.Scriptable
 Camera.FieldOfView = 65
 
-local CamDistance = 9.5
-local CamHeight = 2.4
-local ShakeAmount = 0
+local cameraPosition = BaseCFrame.Position + Vector3.new(0, 4.5, -9)
+local cameraFocus = BaseCFrame.Position + Vector3.new(0, 3, 0)
 
-local cameraConn
-cameraConn = RunService.RenderStepped:Connect(function()
-    if not Root or not Root.Parent then
-        if cameraConn then cameraConn:Disconnect() end
-        Camera.CameraType = Enum.CameraType.Custom
+local CameraConnection = RunService.RenderStepped:Connect(function(dt)
+    if not Running or not Root.Parent then
         return
     end
-    
-    local shakeX = (math.random() - 0.5) * ShakeAmount
-    local shakeY = (math.random() - 0.5) * ShakeAmount
-    
-    local focusPos = Root.Position + Vector3.new(0, 1.2, 0)
-    local camPos = focusPos + Vector3.new(shakeX, CamHeight + shakeY, CamDistance)
-    
-    Camera.CFrame = CFrame.lookAt(camPos, focusPos)
+
+    local targetFocus = Torso.Position + Vector3.new(0, 0.4, 0)
+    local shake = Vector3.new(
+        (math.random() - 0.5) * CameraShakeIntensity,
+        (math.random() - 0.5) * CameraShakeIntensity,
+        0
+    )
+
+    local desiredPosition = targetFocus + Vector3.new(0, 1.2, -8.5) + shake
+    local smoothing = 1 - math.exp(-5 * math.clamp(dt, 0, 0.1))
+
+    cameraPosition = cameraPosition:Lerp(desiredPosition, smoothing)
+    cameraFocus = cameraFocus:Lerp(targetFocus, smoothing)
+
+    Camera.CFrame = CFrame.lookAt(cameraPosition, cameraFocus)
+    Camera.FieldOfView = Camera.FieldOfView
+        + (TargetFOV - Camera.FieldOfView)
+        * (1 - math.exp(-4 * math.clamp(dt, 0, 0.1)))
 end)
 
-local function applyPose(pose, duration, easingStyle, easingDirection)
-    local tweenInfo = TweenInfo.new(duration, easingStyle or Enum.EasingStyle.Quad, easingDirection or Enum.EasingDirection.Out)
-    
-    if pose.Root then TweenService:Create(RootJoint, tweenInfo, {C0 = pose.Root}):Play() end
-    if pose.Neck then TweenService:Create(Neck, tweenInfo, {C0 = pose.Neck}):Play() end
-    if pose.LArm then TweenService:Create(LeftShoulder, tweenInfo, {C0 = pose.LArm}):Play() end
-    if pose.RArm then TweenService:Create(RightShoulder, tweenInfo, {C0 = pose.RArm}):Play() end
-    if pose.LLeg then TweenService:Create(LeftHip, tweenInfo, {C0 = pose.LLeg}):Play() end
-    if pose.RLeg then TweenService:Create(RightHip, tweenInfo, {C0 = pose.RLeg}):Play() end
-    
-    task.wait(duration)
-end
+TrackConnection(CameraConnection)
 
-local function spawnShockwave()
-    local Wave = Instance.new("Part")
-    Wave.Size = Vector3.new(1, 0.1, 1)
-    Wave.Position = Vector3.new(0, 0.1, 0)
-    Wave.Anchored = true
-    Wave.CanCollide = false
-    Wave.Material = Enum.Material.Neon
-    Wave.Color = Color3.fromRGB(0, 220, 255)
-    Wave.Transparency = 0.2
-    Wave.Parent = Studio
-    
-    local Mesh = Instance.new("SpecialMesh")
-    Mesh.MeshType = Enum.MeshType.Cylinder
-    Mesh.Parent = Wave
-    
-    TweenService:Create(Wave, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = Vector3.new(16, 0.05, 16),
-        Transparency = 1
-    }):Play()
-    
-    Debris:AddItem(Wave, 0.45)
-end
+local function ExecuteAnimation()
+    local startCF = BaseCFrame * CFrame.new(0, 3, 0)
 
-local function playMasterAnimationSequence()
-    task.wait(1.2)
+    Pose(
+        startCF, 0, Vector3.one,
+        Vector3.zero, Vector3.zero,
+        Vector3.zero, Vector3.zero,
+        Vector3.zero, Vector3.zero
+    )
 
-    local poseIdle = {
-        Root = CFrame.new(0, 0, 0),
-        Neck = CFrame.new(0, 1, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0),
-        RArm = CFrame.new(1.5, 0.5, 0),
-        LLeg = CFrame.new(-0.5, -1, 0),
-        RLeg = CFrame.new(0.5, -1, 0)
-    }
-    applyPose(poseIdle, 0.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+    task.wait(0.5)
+    if not Running then return end
 
-    local posePreAntic = {
-        Root = CFrame.new(0, 0.2, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(-10), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(15), 0, math.rad(10)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(15), 0, math.rad(-10)),
-        LLeg = CFrame.new(-0.5, -1, 0),
-        RLeg = CFrame.new(0.5, -1, 0)
-    }
-    applyPose(posePreAntic, 0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    if not Animate(0.32, function(alpha)
+        local a = SmoothStep(alpha)
+        local y = -0.45 * a
+        local scale = Vector3.new(
+            1 + 0.12 * a,
+            1 - 0.22 * a,
+            1 + 0.10 * a
+        )
 
-    local poseAnticipation = {
-        Root = CFrame.new(0, -1.2, 0) * CFrame.Angles(math.rad(18), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(-25), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(-65), math.rad(-10), math.rad(-20)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(-65), math.rad(10), math.rad(20)),
-        LLeg = CFrame.new(-0.5, -0.6, -0.4) * CFrame.Angles(math.rad(45), 0, math.rad(-5)),
-        RLeg = CFrame.new(0.5, -0.6, -0.4) * CFrame.Angles(math.rad(45), 0, math.rad(5))
-    }
-    applyPose(poseAnticipation, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+        Pose(
+            startCF, y, scale,
+            Vector3.new(12 * a, 0, 0),
+            Vector3.new(-8 * a, 0, 0),
+            Vector3.new(-35 * a, 0, -12 * a),
+            Vector3.new(-35 * a, 0, 12 * a),
+            Vector3.new(35 * a, 0, 0),
+            Vector3.new(35 * a, 0, 0)
+        )
+    end) then return end
 
-    Emitter:Emit(25)
+    local gravity = 65
+    local jumpHeight = 5.5
+    local launchVelocity = math.sqrt(2 * gravity * jumpHeight)
+    local flightDuration = 2 * launchVelocity / gravity
+    local flightTime = 0
 
-    TweenService:Create(Camera, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {FieldOfView = 58}):Play()
+    TargetFOV = 59
 
-    local poseLaunch = {
-        Root = CFrame.new(0, 3.5, 0) * CFrame.Angles(math.rad(-12), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(20), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(170), 0, math.rad(-15)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(170), 0, math.rad(15)),
-        LLeg = CFrame.new(-0.5, -1.2, 0) * CFrame.Angles(math.rad(-25), 0, math.rad(-8)),
-        RLeg = CFrame.new(0.5, -1.2, 0) * CFrame.Angles(math.rad(-25), 0, math.rad(8))
-    }
-    applyPose(poseLaunch, 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    while Running and flightTime < flightDuration do
+        local dt = math.clamp(WaitFrame(), 0, 1 / 30)
+        flightTime = math.min(flightTime + dt, flightDuration)
 
-    local poseApex = {
-        Root = CFrame.new(0, 7.8, 0) * CFrame.Angles(math.rad(5), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(-10), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(120), 0, math.rad(-40)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(120), 0, math.rad(40)),
-        LLeg = CFrame.new(-0.5, -0.5, -0.5) * CFrame.Angles(math.rad(50), 0, math.rad(-12)),
-        RLeg = CFrame.new(0.5, -0.5, -0.5) * CFrame.Angles(math.rad(50), 0, math.rad(12))
-    }
-    applyPose(poseApex, 0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local t = flightTime
+        local verticalDisplacement = launchVelocity * t - 0.5 * gravity * t * t
+        local verticalVelocity = launchVelocity - gravity * t
 
-    TweenService:Create(Camera, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {FieldOfView = 65}):Play()
+        local normalizedVelocity = math.clamp(verticalVelocity / launchVelocity, -1, 1)
+        local stretch = math.clamp(math.abs(normalizedVelocity), 0, 1)
 
-    local poseFall = {
-        Root = CFrame.new(0, 2.0, 0) * CFrame.Angles(math.rad(15), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(15), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(40), 0, math.rad(-25)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(40), 0, math.rad(25)),
-        LLeg = CFrame.new(-0.5, -1.1, 0) * CFrame.Angles(math.rad(-15), 0, 0),
-        RLeg = CFrame.new(0.5, -1.1, 0) * CFrame.Angles(math.rad(-15), 0, 0)
-    }
-    applyPose(poseFall, 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        local sx = 1 - 0.06 * stretch
+        local sy = 1 + 0.12 * stretch
+        local sz = 1 - 0.06 * stretch
 
-    ShakeAmount = 0.6
-    Emitter:Emit(40)
-    spawnShockwave()
+        local rootCF = startCF * CFrame.new(0, verticalDisplacement, 0)
+        local airborneAlpha = math.clamp(t / flightDuration, 0, 1)
 
-    local poseImpact = {
-        Root = CFrame.new(0, -1.4, 0) * CFrame.Angles(math.rad(25), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(-30), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(-75), 0, math.rad(-35)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(-75), 0, math.rad(35)),
-        LLeg = CFrame.new(-0.5, -0.4, -0.5) * CFrame.Angles(math.rad(55), 0, math.rad(-10)),
-        RLeg = CFrame.new(0.5, -0.4, -0.5) * CFrame.Angles(math.rad(55), 0, math.rad(10))
-    }
-    applyPose(poseImpact, 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local torsoPitch = -8 + 16 * airborneAlpha
+        local armAngle = -65 + 15 * airborneAlpha
+        local legAngle = 18 + 12 * airborneAlpha
+
+        if verticalVelocity < 0 then
+            torsoPitch = torsoPitch - 6 * stretch
+        end
+
+        Pose(
+            rootCF, 0, Vector3.new(sx, sy, sz),
+            Vector3.new(torsoPitch, 0, 0),
+            Vector3.new(-torsoPitch * 0.35, 0, 0),
+            Vector3.new(armAngle, 0, -12),
+            Vector3.new(armAngle, 0, 12),
+            Vector3.new(legAngle, 0, 0),
+            Vector3.new(legAngle, 0, 0)
+        )
+    end
+
+    if not Running then return end
+
+    TargetFOV = 65
+    CameraShakeIntensity = 0.65
+
+    TriggerShockwave(Torso.Position - Vector3.new(0, 1, 0))
 
     task.spawn(function()
         for i = 1, 10 do
-            ShakeAmount = ShakeAmount * 0.6
-            task.wait(0.03)
+            if not Running then return end
+            CameraShakeIntensity = 0.65 * (1 - i / 10)
+            task.wait(0.025)
         end
-        ShakeAmount = 0
+        CameraShakeIntensity = 0
     end)
 
-    local poseRebound = {
-        Root = CFrame.new(0, 0.3, 0) * CFrame.Angles(math.rad(-5), 0, 0),
-        Neck = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(10), 0, 0),
-        LArm = CFrame.new(-1.5, 0.5, 0) * CFrame.Angles(math.rad(-10), 0, math.rad(-10)),
-        RArm = CFrame.new(1.5, 0.5, 0) * CFrame.Angles(math.rad(-10), 0, math.rad(10)),
-        LLeg = CFrame.new(-0.5, -1, 0),
-        RLeg = CFrame.new(0.5, -1, 0)
-    }
-    applyPose(poseRebound, 0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    if not Animate(0.22, function(alpha)
+        local a = 1 - EaseOutCubic(alpha)
+        local y = -0.35 * a
+        local scale = Vector3.new(
+            1 + 0.22 * a,
+            1 - 0.25 * a,
+            1 + 0.18 * a
+        )
 
-    applyPose(poseIdle, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+        Pose(
+            startCF, y, scale,
+            Vector3.new(18 * a, 0, 0),
+            Vector3.new(-12 * a, 0, 0),
+            Vector3.new(-55 * a, 0, -8 * a),
+            Vector3.new(-55 * a, 0, 8 * a),
+            Vector3.new(45 * a, 0, 0),
+            Vector3.new(45 * a, 0, 0)
+        )
+    end) then return end
+
+    Animate(0.28, function(alpha)
+        local a = SmoothStep(alpha)
+
+        local y = -0.35 * (1 - a)
+        local scale = Vector3.new(
+            1 + 0.22 * (1 - a),
+            1 - 0.25 * (1 - a),
+            1 + 0.18 * (1 - a)
+        )
+
+        Pose(
+            startCF, y, scale,
+            Vector3.new(18 * (1 - a), 0, 0),
+            Vector3.new(-12 * (1 - a), 0, 0),
+            Vector3.new(-55 * (1 - a), 0, -8 * (1 - a)),
+            Vector3.new(-55 * (1 - a), 0, 8 * (1 - a)),
+            Vector3.new(45 * (1 - a), 0, 0),
+            Vector3.new(45 * (1 - a), 0, 0)
+        )
+    end)
+
+    if not Running then return end
+
+    Pose(
+        startCF, 0, Vector3.one,
+        Vector3.zero, Vector3.zero,
+        Vector3.zero, Vector3.zero,
+        Vector3.zero, Vector3.zero
+    )
 end
 
-task.spawn(playMasterAnimationSequence)
+task.spawn(function()
+    local success, err = pcall(ExecuteAnimation)
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BaconStudioUI"
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-local StopBtn = Instance.new("TextButton")
-StopBtn.Size = UDim2.new(0, 160, 0, 50)
-StopBtn.Position = UDim2.new(0.05, 0, 0.82, 0)
-StopBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
-StopBtn.Text = "ปิดฉากอนิเมชั่น"
-StopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-StopBtn.TextSize = 18
-StopBtn.Font = Enum.Font.SourceSansBold
-StopBtn.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = StopBtn
-
-StopBtn.MouseButton1Click:Connect(function()
-    if cameraConn then cameraConn:Disconnect() end
-    Camera.CameraType = Enum.CameraType.Custom
-    Camera.FieldOfView = 70
-    Studio:Destroy()
-    ScreenGui:Destroy()
+    if not success then
+        warn("Bacon animation error:", err)
+    end
 end)
